@@ -9,7 +9,7 @@ LETTER_MM = (215.9, 279.4)  # 8.5in x 11in
 @pytest.mark.parametrize(
     "image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm",
     [
-        ("../test-images/one/one.jpg", A4_MM, 2, 9.0, 5.0, 1.0),  # adjust tol if your lighting/edges vary
+        ("../test-images/one/one.jpg", A4_MM, 2, 9.15, 5.0, 0.5),  # adjust tol if your lighting/edges vary
     ],
 )
 def test_1jpg_two_objects_about_9x5(image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm):
