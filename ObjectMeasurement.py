@@ -6,8 +6,6 @@ from typing import Any, Dict, List, Sequence, Tuple, Union
 import cv2
 import numpy as np
 
-import utlis
-
 
 @dataclass(frozen=True)
 class ContourMeasurement:
@@ -22,13 +20,13 @@ class ContourMeasurement:
 class ObjectMeasurer:
     """Measure object contours in an image using a planar reference (e.g., an A4 sheet).
 
-    This implementation relies on functions in utlis.py (getContours, warpImg, reorder, findDis).
+    This class includes the contour + warp utilities (ported from your utlis.py) as static methods.
 
     Flow:
       1) Find the largest 4-corner contour (the reference page).
       2) Warp the image into a known-size plane.
       3) Find 4-corner object contours inside the warped plane.
-      4) Compute width/height using utlis.findDis on reordered corner points.
+      4) Compute width/height using findDis on reordered corner points.
 
     Measurements are returned in centimeters, matching the legacy script behavior.
     """
@@ -65,6 +63,74 @@ class ObjectMeasurer:
 
         self.warp_pad = int(warp_pad)
 
+    # ---- utilities (ported from utlis.py) ----
+
+    @staticmethod
+    def getContours(
+        img: np.ndarray,
+        cThr: List[int] = [100, 100],
+        showCanny: bool = False,
+        minArea: int = 1000,
+        filter: int = 0,
+        draw: bool = False,
+    ) -> Tuple[np.ndarray, List[Any]]:
+        imgGray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        imgBlur = cv2.GaussianBlur(imgGray, (5, 5), 1)
+        imgCanny = cv2.Canny(imgBlur, cThr[0], cThr[1])
+        kernel = np.ones((5, 5))
+        imgDial = cv2.dilate(imgCanny, kernel, iterations=3)
+        imgThre = cv2.erode(imgDial, kernel, iterations=2)
+        if showCanny:
+            cv2.imshow("Canny", imgThre)
+
+        contours, hiearchy = cv2.findContours(imgThre, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        finalCountours: List[Any] = []
+        for i in contours:
+            area = cv2.contourArea(i)
+            if area > minArea:
+                peri = cv2.arcLength(i, True)
+                approx = cv2.approxPolyDP(i, 0.02 * peri, True)
+                bbox = cv2.boundingRect(approx)
+                if filter > 0:
+                    if len(approx) == filter:
+                        finalCountours.append([len(approx), area, approx, bbox, i])
+                else:
+                    finalCountours.append([len(approx), area, approx, bbox, i])
+
+        finalCountours = sorted(finalCountours, key=lambda x: x[1], reverse=True)
+        if draw:
+            for con in finalCountours:
+                cv2.drawContours(img, con[4], -1, (0, 0, 255), 3)
+        return img, finalCountours
+
+    @staticmethod
+    def reorder(myPoints: np.ndarray) -> np.ndarray:
+        myPointsNew = np.zeros_like(myPoints)
+        myPoints = myPoints.reshape((4, 2))
+        add = myPoints.sum(1)
+        myPointsNew[0] = myPoints[np.argmin(add)]
+        myPointsNew[3] = myPoints[np.argmax(add)]
+        diff = np.diff(myPoints, axis=1)
+        myPointsNew[1] = myPoints[np.argmin(diff)]
+        myPointsNew[2] = myPoints[np.argmax(diff)]
+        return myPointsNew
+
+    @staticmethod
+    def warpImg(img: np.ndarray, points: np.ndarray, w: int, h: int, pad: int = 20) -> np.ndarray:
+        points = ObjectMeasurer.reorder(points)
+        pts1 = np.float32(points)
+        pts2 = np.float32([[0, 0], [w, 0], [0, h], [w, h]])
+        matrix = cv2.getPerspectiveTransform(pts1, pts2)
+        imgWarp = cv2.warpPerspective(img, matrix, (w, h))
+        imgWarp = imgWarp[pad : imgWarp.shape[0] - pad, pad : imgWarp.shape[1] - pad]
+        return imgWarp
+
+    @staticmethod
+    def findDis(pts1: np.ndarray, pts2: np.ndarray) -> float:
+        return float(((pts2[0] - pts1[0]) ** 2 + (pts2[1] - pts1[1]) ** 2) ** 0.5)
+
+    # ---- measurement API ----
+
     def measure(
         self,
         img: np.ndarray,
@@ -75,7 +141,7 @@ class ObjectMeasurer:
 
         debug: Dict[str, Any] = {}
 
-        imgContours, conts = utlis.getContours(img, minArea=self.page_min_area, filter=self.page_filter_corners)
+        imgContours, conts = ObjectMeasurer.getContours(img, minArea=self.page_min_area, filter=self.page_filter_corners)
         debug["imgContours_page"] = imgContours
         debug["page_contours"] = conts
 
@@ -85,11 +151,10 @@ class ObjectMeasurer:
 
         biggest = conts[0][2]
 
-        # Use utlis.warpImg but respect pad via argument
-        imgWarp = utlis.warpImg(img, biggest, self.wP, self.hP, pad=self.warp_pad)
+        imgWarp = ObjectMeasurer.warpImg(img, biggest, self.wP, self.hP, pad=self.warp_pad)
         debug["imgWarp"] = imgWarp
 
-        imgContours2, conts2 = utlis.getContours(
+        imgContours2, conts2 = ObjectMeasurer.getContours(
             imgWarp,
             minArea=self.object_min_area,
             filter=self.object_filter_corners,
@@ -121,11 +186,11 @@ class ObjectMeasurer:
 
         for obj in conts2:
             pts = obj[2]  # approx polygon
-            nPoints = utlis.reorder(pts)
+            nPoints = ObjectMeasurer.reorder(pts)
 
             # Keep legacy behavior: divide points by scale before findDis, then divide by 10 and label as cm.
-            w = utlis.findDis(nPoints[0][0] // self.scale, nPoints[1][0] // self.scale)
-            h = utlis.findDis(nPoints[0][0] // self.scale, nPoints[2][0] // self.scale)
+            w = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[1][0] // self.scale)
+            h = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[2][0] // self.scale)
 
             width_cm = round((w / self.pixels_to_mm_divisor), 1)
             height_cm = round((h / self.pixels_to_mm_divisor), 1)
@@ -151,7 +216,7 @@ def _draw_measurements(imgWarp: np.ndarray, measurements: Sequence[ContourMeasur
     for m in measurements:
         cv2.polylines(imgOut, [m.contour], True, (0, 255, 0), 2)
 
-        nPoints = utlis.reorder(m.contour)
+        nPoints = ObjectMeasurer.reorder(m.contour)
 
         cv2.arrowedLine(
             imgOut,
