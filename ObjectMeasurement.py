@@ -66,44 +66,6 @@ class ObjectMeasurer:
     # ---- utilities (ported from utlis.py) ----
 
     @staticmethod
-    def getContours(
-        img: np.ndarray,
-        cThr: List[int] = [100, 100],
-        showCanny: bool = False,
-        minArea: int = 1000,
-        filter: int = 0,
-        draw: bool = False,
-    ) -> Tuple[np.ndarray, List[Any]]:
-        imgGray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        imgBlur = cv2.GaussianBlur(imgGray, (5, 5), 1)
-        imgCanny = cv2.Canny(imgBlur, cThr[0], cThr[1])
-        kernel = np.ones((5, 5))
-        imgDial = cv2.dilate(imgCanny, kernel, iterations=3)
-        imgThre = cv2.erode(imgDial, kernel, iterations=2)
-        if showCanny:
-            cv2.imshow("Canny", imgThre)
-
-        contours, hiearchy = cv2.findContours(imgThre, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        finalCountours: List[Any] = []
-        for i in contours:
-            area = cv2.contourArea(i)
-            if area > minArea:
-                peri = cv2.arcLength(i, True)
-                approx = cv2.approxPolyDP(i, 0.02 * peri, True)
-                bbox = cv2.boundingRect(approx)
-                if filter > 0:
-                    if len(approx) == filter:
-                        finalCountours.append([len(approx), area, approx, bbox, i])
-                else:
-                    finalCountours.append([len(approx), area, approx, bbox, i])
-
-        finalCountours = sorted(finalCountours, key=lambda x: x[1], reverse=True)
-        if draw:
-            for con in finalCountours:
-                cv2.drawContours(img, con[4], -1, (0, 0, 255), 3)
-        return img, finalCountours
-
-    @staticmethod
     def reorder(myPoints: np.ndarray) -> np.ndarray:
         myPointsNew = np.zeros_like(myPoints)
         myPoints = myPoints.reshape((4, 2))
@@ -141,7 +103,7 @@ class ObjectMeasurer:
 
         debug: Dict[str, Any] = {}
 
-        imgContours, conts = ObjectMeasurer.getContours(img, minArea=self.page_min_area, filter=self.page_filter_corners)
+        imgContours, conts = self._getContours(img, minArea=self.page_min_area, filter=self.page_filter_corners)
         debug["imgContours_page"] = imgContours
         debug["page_contours"] = conts
 
@@ -154,7 +116,7 @@ class ObjectMeasurer:
         imgWarp = ObjectMeasurer.warpImg(img, biggest, self.wP, self.hP, pad=self.warp_pad)
         debug["imgWarp"] = imgWarp
 
-        imgContours2, conts2 = ObjectMeasurer.getContours(
+        imgContours2, conts2 = self._getContours(
             imgWarp,
             minArea=self.object_min_area,
             filter=self.object_filter_corners,
@@ -206,6 +168,65 @@ class ObjectMeasurer:
             )
 
         return out
+
+
+    def _getContours(
+        self,
+        img: np.ndarray,
+        cThr: List[int] = [100, 100],
+        showCanny: bool = False,
+        minArea: int = 1000,
+        filter: int = 0,
+        draw: bool = False,
+    ) -> Tuple[np.ndarray, List[Any]]:
+        imgGray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        try:
+            cv2.imwrite(f"{self.debug_path}/00_{self.slug}_gray.jpg", imgGray)
+        except Exception:
+            pass
+        imgBlur = cv2.GaussianBlur(imgGray, (5, 5), 1)
+        try:
+            cv2.imwrite(f"{self.debug_path}/01_{self.slug}_blur.jpg", imgBlur)
+        except Exception:
+            pass
+        imgCanny = cv2.Canny(imgBlur, cThr[0], cThr[1])
+        try:
+            cv2.imwrite(f"{self.debug_path}/02_{self.slug}_edge-detect.jpg", imgCanny)
+        except Exception:
+            pass
+        kernel = np.ones((5, 5))
+        imgDial = cv2.dilate(imgCanny, kernel, iterations=3)
+        try:
+            cv2.imwrite(f"{self.debug_path}/03_{self.slug}_dilate.jpg", imgDial)
+        except Exception:
+            pass
+        imgThre = cv2.erode(imgDial, kernel, iterations=2)
+        try:
+            cv2.imwrite(f"{self.debug_path}/02_{self.slug}_erode.jpg", imgThre)
+        except Exception:
+            pass
+        if showCanny:
+            cv2.imshow("Canny", imgThre)
+
+        contours, hiearchy = cv2.findContours(imgThre, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        finalCountours: List[Any] = []
+        for i in contours:
+            area = cv2.contourArea(i)
+            if area > minArea:
+                peri = cv2.arcLength(i, True)
+                approx = cv2.approxPolyDP(i, 0.02 * peri, True)
+                bbox = cv2.boundingRect(approx)
+                if filter > 0:
+                    if len(approx) == filter:
+                        finalCountours.append([len(approx), area, approx, bbox, i])
+                else:
+                    finalCountours.append([len(approx), area, approx, bbox, i])
+
+        finalCountours = sorted(finalCountours, key=lambda x: x[1], reverse=True)
+        if draw:
+            for con in finalCountours:
+                cv2.drawContours(img, con[4], -1, (0, 0, 255), 3)
+        return img, finalCountours
 
 
 def _draw_measurements(imgWarp: np.ndarray, measurements: Sequence[ContourMeasurement]) -> np.ndarray:

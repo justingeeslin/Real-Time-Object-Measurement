@@ -13,21 +13,22 @@ CREDIT_CARD_H_CM = 5.398
 STANDARD_TOLERANCE_CM = 0.5
 
 @pytest.mark.parametrize(
-    "image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm",
+    "slug, image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm",
     [
-        ("../test-images/one/one.jpg", A4_MM, 2, 9.15, 5.0, STANDARD_TOLERANCE_CM),  # adjust tol if your lighting/edges vary
-        ("../test-images/ucard-one/ucard-one.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("../test-images/ucard-two/ucard-two.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("../test-images/ucard-one-off-axis/ucard-one-off-axis.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("../test-images/ucard-two-off-axis/ucard-two-off-axis.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
+        ("one", "../test-images/one/one.jpg", A4_MM, 2, 9.15, 5.0, STANDARD_TOLERANCE_CM),  # adjust tol if your lighting/edges vary
+        ("ucard-one","../test-images/ucard-one/ucard-one.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
+        ("ucard-two","../test-images/ucard-two/ucard-two.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
+        ("ucard-one-off-axis","../test-images/ucard-one-off-axis/ucard-one-off-axis.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
+        ("ucard-two-off-axis","../test-images/ucard-two-off-axis/ucard-two-off-axis.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
     ],
 )
-def test_1jpg_two_objects_about_9x5(image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm):
+def test_1jpg_two_objects_about_9x5(slug, image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm):
     img = cv2.imread(image_path)
     assert img is not None, f"Could not load image at path: {image_path}"
 
     measurer = ObjectMeasurer(scale=3, reference_size_mm=reference_size_mm)
-
+    measurer.slug = slug
+    measurer.debug_path = f"../test-images/{slug}"
     measurements = measurer.measure(img)
 
     print(f"Expected {expected_count} contours, got {len(measurements)}: ")
