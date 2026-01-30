@@ -62,6 +62,14 @@ class ObjectMeasurer:
         self.hP = int(self.ref_h_mm * self.scale)
 
         self.warp_pad = int(warp_pad)
+        self.debugImageCounter = 0
+
+    def _saveDebugImage(self, image: np.ndarray, name) -> None:
+        try:
+            cv2.imwrite(f"{self.debug_path}/{self.debugImageCounter}_{self.slug}_{name}.jpg", image)
+        except Exception:
+            pass
+        self.debugImageCounter += 1
 
     # ---- utilities (ported from utlis.py) ----
 
@@ -103,6 +111,9 @@ class ObjectMeasurer:
 
         debug: Dict[str, Any] = {}
 
+        # Get the page contour
+        originalSlug = self.slug
+        self.slug = self.slug + "_page"
         imgContours, conts = self._getContours(img, minArea=self.page_min_area, filter=self.page_filter_corners)
         debug["imgContours_page"] = imgContours
         debug["page_contours"] = conts
@@ -113,8 +124,11 @@ class ObjectMeasurer:
 
         biggest = conts[0][2]
 
+        self.slug = originalSlug
+
         imgWarp = ObjectMeasurer.warpImg(img, biggest, self.wP, self.hP, pad=self.warp_pad)
         debug["imgWarp"] = imgWarp
+        self._saveDebugImage(imgWarp, "warped")
 
         imgContours2, conts2 = self._getContours(
             imgWarp,
@@ -180,31 +194,16 @@ class ObjectMeasurer:
         draw: bool = False,
     ) -> Tuple[np.ndarray, List[Any]]:
         imgGray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        try:
-            cv2.imwrite(f"{self.debug_path}/00_{self.slug}_gray.jpg", imgGray)
-        except Exception:
-            pass
+        self._saveDebugImage(imgGray, "gray")
         imgBlur = cv2.GaussianBlur(imgGray, (5, 5), 1)
-        try:
-            cv2.imwrite(f"{self.debug_path}/01_{self.slug}_blur.jpg", imgBlur)
-        except Exception:
-            pass
+        self._saveDebugImage(imgBlur, "blur")
         imgCanny = cv2.Canny(imgBlur, cThr[0], cThr[1])
-        try:
-            cv2.imwrite(f"{self.debug_path}/02_{self.slug}_edge-detect.jpg", imgCanny)
-        except Exception:
-            pass
+        self._saveDebugImage(imgCanny, "edgeDetect")
         kernel = np.ones((5, 5))
         imgDial = cv2.dilate(imgCanny, kernel, iterations=3)
-        try:
-            cv2.imwrite(f"{self.debug_path}/03_{self.slug}_dilate.jpg", imgDial)
-        except Exception:
-            pass
+        self._saveDebugImage(imgDial, "dilate")
         imgThre = cv2.erode(imgDial, kernel, iterations=2)
-        try:
-            cv2.imwrite(f"{self.debug_path}/02_{self.slug}_erode.jpg", imgThre)
-        except Exception:
-            pass
+        self._saveDebugImage(imgThre, "_erode")
         if showCanny:
             cv2.imshow("Canny", imgThre)
 
