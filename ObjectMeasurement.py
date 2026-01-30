@@ -124,6 +124,52 @@ class ObjectMeasurer:
 
         biggest = conts[0][2]
 
+        # --- debug: draw minAreaRect in blue ---
+        rect = cv2.minAreaRect(biggest)
+        box = cv2.boxPoints(rect)  # 4x2 float array
+        box = box.astype(np.int32)
+
+        img_with_rect = img.copy()
+        cv2.drawContours(img_with_rect, [box], 0, (0, 255, 0), 3)
+        debug["img_minAreaRect"] = img_with_rect
+        self._saveDebugImage(img_with_rect, "minAreaRect")
+
+        img_with_paper_contour = img.copy()
+        cv2.drawContours(img_with_paper_contour, [biggest], 0, (0, 0, 255), 3)
+        self._saveDebugImage(img_with_paper_contour, "paper_contour")
+
+        (_, _), (paper_w, paper_h), paper_angle = cv2.minAreaRect(biggest)
+
+        # iron out OpenCV's tricky width and height intepretation
+        if paper_angle < 45:
+            pass
+        elif paper_angle < 90+45:
+            print("Swapping width and height")
+            temp = paper_w
+            paper_w = paper_h
+            paper_h = temp
+        else:
+            print("No swap needed its just upside down which is fine for a symetrial object")
+
+        is_landscape = paper_w > paper_h
+        print(f"{self.slug} angle: {paper_angle}")
+
+        if is_landscape:
+            print(f"{self.slug} is landscape, Rotating to portrait..")
+
+            def rotate_contour_90_cw(cnt, img_shape):
+                h, w = img_shape[:2]
+                cnt_rot = cnt.copy()
+                cnt_rot[:, 0, 0] = h - 1 - cnt[:, 0, 1]  # new x
+                cnt_rot[:, 0, 1] = cnt[:, 0, 0]  # new y
+                return cnt_rot
+
+            biggest = rotate_contour_90_cw(biggest, img.shape)
+
+            img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+        else:
+            print(f"{self.slug} is not landscape")
+
         self.slug = originalSlug
 
         imgWarp = ObjectMeasurer.warpImg(img, biggest, self.wP, self.hP, pad=self.warp_pad)
