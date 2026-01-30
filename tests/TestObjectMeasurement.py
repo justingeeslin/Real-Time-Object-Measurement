@@ -1,5 +1,6 @@
 import cv2
 import pytest
+from pathlib import Path
 
 from ObjectMeasurement import ObjectMeasurer
 
@@ -11,6 +12,30 @@ CREDIT_CARD_W_CM = 8.56
 CREDIT_CARD_H_CM = 5.398
 
 STANDARD_TOLERANCE_CM = 0.5
+def cleanup_debug_images(keep_image_path: str) -> None:
+    """
+    Remove all image files in the directory of `keep_image_path`
+    except the file explicitly named by `keep_image_path`.
+
+    This is useful for test debug folders where each test run should
+    leave only the most relevant image artifact.
+    """
+    keep_path = Path(keep_image_path).resolve()
+    directory = keep_path.parent
+
+    if not directory.exists():
+        return
+
+    for p in directory.iterdir():
+        if not p.is_file():
+            continue
+        if p == keep_path:
+            continue
+        if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp"}:
+            try:
+                p.unlink()
+            except OSError:
+                pass
 
 @pytest.mark.parametrize(
     "slug, image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm",
@@ -29,6 +54,7 @@ def test_1jpg_two_objects_about_9x5(slug, image_path, reference_size_mm, expecte
     measurer = ObjectMeasurer(scale=3, reference_size_mm=reference_size_mm)
     measurer.slug = slug
     measurer.debug_path = f"../test-images/{slug}"
+    cleanup_debug_images(image_path)
     measurements = measurer.measure(img)
 
     print(f"Expected {expected_count} contours, got {len(measurements)}: ")
