@@ -214,8 +214,8 @@ class ObjectMeasurer:
             w = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[1][0] // self.scale)
             h = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[2][0] // self.scale)
 
-            width_cm = round((w / self.pixels_to_mm_divisor), 1)
-            height_cm = round((h / self.pixels_to_mm_divisor), 1)
+            width_cm = w / self.pixels_to_mm_divisor
+            height_cm = h / self.pixels_to_mm_divisor
 
             x, y, bw, bh = obj[3]
             out.append(
