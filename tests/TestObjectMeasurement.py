@@ -11,7 +11,8 @@ LETTER_MM = (215.9, 279.4)  # 8.5in x 11in
 CREDIT_CARD_W_CM = 8.56
 CREDIT_CARD_H_CM = 5.398
 
-STANDARD_TOLERANCE_CM = 0.5
+STANDARD_TOLERANCE_CM = 0.33
+
 def cleanup_debug_images(keep_image_path: str) -> None:
     """
     Remove all image files in the directory of `keep_image_path`
