@@ -234,7 +234,6 @@ class ObjectMeasurer:
         self,
         img: np.ndarray,
         cThr: List[int] = [100, 100],
-        showCanny: bool = False,
         minArea: int = 1000,
         filter: int = 0,
         draw: bool = False,
@@ -250,8 +249,6 @@ class ObjectMeasurer:
         self._saveDebugImage(imgDial, "dilate")
         imgThre = cv2.erode(imgDial, kernel, iterations=2)
         self._saveDebugImage(imgThre, "_erode")
-        if showCanny:
-            cv2.imshow("Canny", imgThre)
 
         contours, hiearchy = cv2.findContours(imgThre, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         finalCountours: List[Any] = []
