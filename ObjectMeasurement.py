@@ -178,13 +178,56 @@ class ObjectMeasurer:
 
         imgContours2, conts2 = self._getContours(
             imgWarp,
-            minArea=self.object_min_area,
-            filter=self.object_filter_corners,
+            minArea=100,
+            filter=0,
             cThr=[self.object_canny_thresholds[0], self.object_canny_thresholds[1]],
             draw=False,
         )
         debug["imgContours_objects"] = imgContours2
         debug["object_contours"] = conts2
+
+        # --- debug: draw all detected object contours on the warped image ---
+        img_with_object_contours = imgWarp.copy()
+        for idx, obj in enumerate(conts2):
+            cnt = obj[4]  # raw contour
+            cv2.drawContours(img_with_object_contours, [cnt], -1, (0, 0, 255), 2)
+            x, y, bw, bh = obj[3]
+            cv2.rectangle(img_with_object_contours, (x, y), (x + bw, y + bh), (255, 0, 0), 2)
+            cv2.putText(
+                img_with_object_contours,
+                str(idx),
+                (x + 5, y + 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 255),
+                2,
+            )
+
+            # Print the axis-aligned bbox dimensions (blue rectangle) in cm
+            bbox_w_cm = float(bw) / self.pixels_to_mm_divisor
+            bbox_h_cm = float(bh) / self.pixels_to_mm_divisor
+            print(f"[draw bbox] obj#{idx}: w={bbox_w_cm:.4f}cm h={bbox_h_cm:.4f}cm (axis-aligned)")
+        debug["img_object_contours_drawn"] = img_with_object_contours
+        self._saveDebugImage(img_with_object_contours, "object_contours_drawn")
+
+        # --- debug: draw minAreaRect boxes for each object (useful for polygons) ---
+        img_with_object_boxes = imgWarp.copy()
+        for idx, obj in enumerate(conts2):
+            cnt = obj[4]
+            rect = cv2.minAreaRect(cnt)
+            box = cv2.boxPoints(rect)
+            box = box.astype(np.int32)
+            cv2.drawContours(img_with_object_boxes, [box], 0, (0, 255, 0), 2)
+
+            # if return_debug:
+            (_, _), (w_box, h_box), _ = rect
+            width_px = max(float(w_box), float(h_box))
+            height_px = min(float(w_box), float(h_box))
+            width_cm = width_px / self.pixels_to_mm_divisor
+            height_cm = height_px / self.pixels_to_mm_divisor
+            print(f"[draw minAreaRect] obj#{idx}: w={width_cm:.4f}cm h={height_cm:.4f}cm (rotated)")
+        debug["img_object_minAreaRect"] = img_with_object_boxes
+        self._saveDebugImage(img_with_object_boxes, "object_minAreaRect")
 
         measurements = self._measure_objects(conts2)
 
@@ -208,14 +251,34 @@ class ObjectMeasurer:
 
         for obj in conts2:
             pts = obj[2]  # approx polygon
-            nPoints = ObjectMeasurer.reorder(pts)
 
-            # Keep legacy behavior: divide points by scale before findDis, then divide by 10 and label as cm.
-            w = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[1][0] // self.scale)
-            h = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[2][0] // self.scale)
+            # If it's a clean 4-corner polygon, keep the legacy corner-to-corner measurement.
+            # Otherwise (polygons, noisy contours), use the rotated minimum-area bounding box.
+            if len(pts) == 4:
+                print("Using rectangle distance method...")
+                nPoints = ObjectMeasurer.reorder(pts)
 
-            width_cm = w / self.pixels_to_mm_divisor
-            height_cm = h / self.pixels_to_mm_divisor
+                # Legacy behavior: divide points by scale before findDis, then divide by 10 and label as cm.
+                w_px = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[1][0] // self.scale)
+                h_px = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[2][0] // self.scale)
+            else:
+                print("Using polygon distance method...")
+                # Use raw contour for a tighter fit than the simplified approx polygon.
+                cnt = obj[4]
+                (_, _), (w_box, h_box), _ = cv2.minAreaRect(cnt)
+                # minAreaRect returns widths/heights in pixels of the warped image.
+                w_px, h_px = float(w_box // self.scale), float(h_box // self.scale)
+
+            # Normalize so width is the longer side and height is the shorter side.
+            width_px = max(w_px, h_px)
+            height_px = min(w_px, h_px)
+
+            width_cm = width_px / self.pixels_to_mm_divisor
+            height_cm = height_px / self.pixels_to_mm_divisor
+
+            if getattr(self, "debug", False):
+                method = "corners" if len(pts) == 4 else "minAreaRect"
+                print(f"[measure] {method}: w={width_cm:.2f}cm h={height_cm:.2f}cm")
 
             x, y, bw, bh = obj[3]
             out.append(
