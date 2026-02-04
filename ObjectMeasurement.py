@@ -136,6 +136,7 @@ class ObjectMeasurer:
 
         img_with_paper_contour = img.copy()
         cv2.drawContours(img_with_paper_contour, [biggest], 0, (0, 0, 255), 3)
+        debug["img_with_paper_contour"] = img_with_paper_contour
         self._saveDebugImage(img_with_paper_contour, "paper_contour")
 
         (_, _), (paper_w, paper_h), paper_angle = cv2.minAreaRect(biggest)
@@ -387,42 +388,60 @@ def _draw_measurements(imgWarp: np.ndarray, measurements: Sequence[ContourMeasur
 
     return imgOut
 
-
+PORTRAIT_POSTER_BOARD_MM = (561.975, 711.2)
 def main() -> None:
     """Interactive demo (webcam or single image path), similar to the original script."""
 
     ###################################
-    webcam = True
-    path = "test-images/one/one.jpg"
-
     cap = cv2.VideoCapture(0)
     cap.set(10, 160)
     cap.set(3, 1920)
     cap.set(4, 1080)
 
-    measurer = ObjectMeasurer(scale=3)
+    measurer = ObjectMeasurer(scale=1, reference_size_mm=PORTRAIT_POSTER_BOARD_MM)
+    measurer.slug = "main"
     ###################################
 
     while True:
-        if webcam:
-            success, img = cap.read()
-            if not success or img is None:
-                continue
-        else:
-            img = cv2.imread(path)
-            if img is None:
-                raise FileNotFoundError(f"Could not read image: {path}")
+        success, img = cap.read()
+        if not success or img is None:
+            continue
 
         measurements, debug = measurer.measure(img, return_debug=True)
 
+        # Show the warped plane with the contour overlays (best view for measurement correctness)
         imgWarp = debug.get("imgWarp")
         if imgWarp is not None:
             imgAnnotated = _draw_measurements(imgWarp, measurements)
-            cv2.imshow("A4", imgAnnotated)
+            cv2.imshow("Warped (Contours)", imgAnnotated)
+        else:
+            print("No warped image")
 
+        # Also show the debug frame that draws *all* detected object contours + axis-aligned bboxes
+        # obj_debug = debug.get("img_object_contours_drawn")
+        # if obj_debug is not None:
+        #     cv2.imshow("Warped (Detected Objects)", obj_debug)
+        # else:
+        #     print("No object detected")
+
+        # Original feed (smaller) so you can see what the camera sees
         imgSmall = cv2.resize(img, (0, 0), None, 0.5, 0.5)
         cv2.imshow("Original", imgSmall)
-        cv2.waitKey(1)
+
+        obj_debug = debug.get("imgWarp")
+        if obj_debug is not None:
+            cv2.imshow("Warped (Detected Objects)", obj_debug)
+        else:
+            print("No object detected")
+
+
+        # Allow quitting with ESC or 'q'
+        key = cv2.waitKey(1) & 0xFF
+        if key in (27, ord('q')):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
