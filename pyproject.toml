@@ -1,6 +1,6 @@
 [project]
 name = "ObjectMeasurer"     # pip install BodySegmentPainter
-version = "0.1.0"
+version = "0.1.1"
 description = "Segment and color OpenCV contours"
 requires-python = ">=3.9"
 dependencies = [
