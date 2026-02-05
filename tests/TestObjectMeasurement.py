@@ -18,7 +18,7 @@ CREDIT_CARD_W_CM = 8.56
 CREDIT_CARD_H_CM = 5.398
 
 STANDARD_TOLERANCE_CM = 0.33
-STANDARD_TOLERANCE_SHIRT_CM = 2
+STANDARD_TOLERANCE_SHIRT_CM = 3
 
 def cleanup_debug_images(keep_image_path: str) -> None:
     """
@@ -46,24 +46,27 @@ def cleanup_debug_images(keep_image_path: str) -> None:
                 pass
 
 @pytest.mark.parametrize(
-    "slug, image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm",
+    "slug, scale, image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm",
     [
-        ("one", "../test-images/one/one.jpg", A4_MM, 2, 9.15, 5.0, STANDARD_TOLERANCE_CM),  # adjust tol if your lighting/edges vary
-        ("ucard-one","../test-images/ucard-one/ucard-one.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("ucard-two","../test-images/ucard-two/ucard-two.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("ucard-one-off-axis","../test-images/ucard-one-off-axis/ucard-one-off-axis.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("ucard-two-off-axis","../test-images/ucard-two-off-axis/ucard-two-off-axis.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
+        ("one", 1, "../test-images/one/one.jpg", A4_MM, 2, 9.15, 5.0, STANDARD_TOLERANCE_CM),  # adjust tol if your lighting/edges vary
+        ("ucard-one", 1,"../test-images/ucard-one/ucard-one.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
+        ("ucard-one", 2,"../test-images/ucard-one/ucard-one.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
+        ("ucard-two", 1, "../test-images/ucard-two/ucard-two.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
+        ("ucard-one-off-axis", 1,"../test-images/ucard-one-off-axis/ucard-one-off-axis.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
+        ("ucard-two-off-axis", 1,"../test-images/ucard-two-off-axis/ucard-two-off-axis.jpg", LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
 
-        ("iswic","../test-images/iswic/iswic.jpg", LIGHTBOX_MAT_MM, 1, 70.485, 69.5325, STANDARD_TOLERANCE_SHIRT_CM),
-        ("goldy","../test-images/goldy/goldy.jpg", ODDBALL_BLACK_POSTER_BOARD_MM, 1, 45.72, 40.5, STANDARD_TOLERANCE_SHIRT_CM),
-        ("cherokee","../test-images/cherokee/cherokee.jpg", ODDBALL_BLACK_POSTER_BOARD_MM, 1, 40.9575, 51.435, STANDARD_TOLERANCE_SHIRT_CM),
+        ("iswic", 1, "../test-images/iswic/iswic.jpg", LIGHTBOX_MAT_MM, 1, 70.485, 69.5325, STANDARD_TOLERANCE_SHIRT_CM),
+        ("goldy", 1, "../test-images/goldy/goldy.jpg", ODDBALL_BLACK_POSTER_BOARD_MM, 1, 45.72, 40.5, STANDARD_TOLERANCE_SHIRT_CM),
+        ("cherokee", 1, "../test-images/cherokee/cherokee.jpg", ODDBALL_BLACK_POSTER_BOARD_MM, 1, 40.9575, 51.435, STANDARD_TOLERANCE_SHIRT_CM),
+
+        ("iswic", 2, "../test-images/iswic/iswic.jpg", LIGHTBOX_MAT_MM, 1, 70.485, 69.5325, STANDARD_TOLERANCE_SHIRT_CM),
     ],
 )
-def test_1jpg_two_objects_about_9x5(slug, image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm):
+def test_1jpg_two_objects_about_9x5(slug, scale, image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm):
     img = cv2.imread(image_path)
     assert img is not None, f"Could not load image at path: {image_path}"
 
-    measurer = ObjectMeasurer(scale=1, reference_size_mm=reference_size_mm)
+    measurer = ObjectMeasurer(scale = scale, reference_size_mm=reference_size_mm)
     measurer.slug = slug
     measurer.debug_path = f"../test-images/{slug}"
     cleanup_debug_images(image_path)

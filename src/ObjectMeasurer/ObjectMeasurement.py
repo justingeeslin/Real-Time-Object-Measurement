@@ -304,13 +304,17 @@ class ObjectMeasurer:
         filter: int = 0,
         draw: bool = False,
     ) -> Tuple[np.ndarray, List[Any]]:
+        # Blur and Edge Detect based on scale
+        kernel_size = round(5 * self.scale)
+        print(f"[getContours] kernel_size={kernel_size}")
+
         imgGray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         self._saveDebugImage(imgGray, "gray")
         imgBlur = cv2.GaussianBlur(imgGray, (5, 5), 1)
         self._saveDebugImage(imgBlur, "blur")
         imgCanny = cv2.Canny(imgBlur, cThr[0], cThr[1])
         self._saveDebugImage(imgCanny, "edgeDetect")
-        kernel = np.ones((5, 5))
+        kernel = np.ones((kernel_size, kernel_size))
         imgDial = cv2.dilate(imgCanny, kernel, iterations=3)
         self._saveDebugImage(imgDial, "dilate")
         imgThre = cv2.erode(imgDial, kernel, iterations=2)
