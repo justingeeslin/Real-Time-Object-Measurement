@@ -2,7 +2,7 @@ import cv2
 import pytest
 from pathlib import Path
 
-from ObjectMeasurement import ObjectMeasurer
+from ObjectMeasurer import ObjectMeasurer
 
 # SHORT SIDE / X-AXIS FIRST
 A4_MM = (210.0, 297.0)
