@@ -34,7 +34,7 @@ class ObjectMeasurer:
     def __init__(
         self,
         *,
-        scale: int = 3,
+        scale: int = 1,
         reference_size_mm: Tuple[float, float] = (210.0, 297.0),
         page_min_area: int = 50_000,
         object_min_area: int = 2_000,
