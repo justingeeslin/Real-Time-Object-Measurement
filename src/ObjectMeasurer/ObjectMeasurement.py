@@ -63,6 +63,7 @@ class ObjectMeasurer:
 
         self.warp_pad = int(warp_pad)
         self.debugImageCounter = 0
+        self.debug = {}
 
     def _saveDebugImage(self, image: np.ndarray, name) -> None:
         try:
@@ -109,18 +110,18 @@ class ObjectMeasurer:
     ) -> Union[List[ContourMeasurement], Tuple[List[ContourMeasurement], Dict[str, Any]]]:
         """Measure objects in the provided BGR image."""
 
-        debug: Dict[str, Any] = {}
+        self.debug: Dict[str, Any] = {}
 
         # Get the page contour
         originalSlug = self.slug
         self.slug = self.slug + "_page"
         imgContours, conts = self._getContours(img, minArea=self.page_min_area, filter=self.page_filter_corners)
-        debug["imgContours_page"] = imgContours
-        debug["page_contours"] = conts
+        self.debug["imgContours_page"] = imgContours
+        self.debug["page_contours"] = conts
 
         if len(conts) == 0:
             measurements: List[ContourMeasurement] = []
-            return (measurements, debug) if return_debug else measurements
+            return (measurements, self.debug) if return_debug else measurements
 
         biggest = conts[0][2]
 
@@ -131,12 +132,12 @@ class ObjectMeasurer:
 
         img_with_rect = img.copy()
         cv2.drawContours(img_with_rect, [box], 0, (0, 255, 0), 3)
-        debug["img_minAreaRect"] = img_with_rect
+        self.debug["img_minAreaRect"] = img_with_rect
         self._saveDebugImage(img_with_rect, "minAreaRect")
 
         img_with_paper_contour = img.copy()
         cv2.drawContours(img_with_paper_contour, [biggest], 0, (0, 0, 255), 3)
-        debug["img_with_paper_contour"] = img_with_paper_contour
+        self.debug["img_with_paper_contour"] = img_with_paper_contour
         self._saveDebugImage(img_with_paper_contour, "paper_contour")
 
         (_, _), (paper_w, paper_h), paper_angle = cv2.minAreaRect(biggest)
@@ -174,7 +175,7 @@ class ObjectMeasurer:
         self.slug = originalSlug
 
         imgWarp = ObjectMeasurer.warpImg(img, biggest, self.wP, self.hP, pad=self.warp_pad)
-        debug["imgWarp"] = imgWarp
+        self.debug["imgWarp"] = imgWarp
         self._saveDebugImage(imgWarp, "warped")
 
         imgContours2, conts2 = self._getContours(
@@ -184,13 +185,14 @@ class ObjectMeasurer:
             cThr=[self.object_canny_thresholds[0], self.object_canny_thresholds[1]],
             draw=False,
         )
-        debug["imgContours_objects"] = imgContours2
-        debug["object_contours"] = conts2
+        self.debug["imgContours_objects"] = imgContours2
+        self.debug["object_contours"] = conts2
 
         # --- debug: draw all detected object contours on the warped image ---
         img_with_object_contours = imgWarp.copy()
         for idx, obj in enumerate(conts2):
             cnt = obj[4]  # raw contour
+
             cv2.drawContours(img_with_object_contours, [cnt], -1, (0, 0, 255), 2)
             x, y, bw, bh = obj[3]
             cv2.rectangle(img_with_object_contours, (x, y), (x + bw, y + bh), (255, 0, 0), 2)
@@ -208,7 +210,7 @@ class ObjectMeasurer:
             bbox_w_cm = float(bw) / self.pixels_to_mm_divisor
             bbox_h_cm = float(bh) / self.pixels_to_mm_divisor
             print(f"[draw bbox] obj#{idx}: w={bbox_w_cm:.4f}cm h={bbox_h_cm:.4f}cm (axis-aligned)")
-        debug["img_object_contours_drawn"] = img_with_object_contours
+        self.debug["img_object_contours_drawn"] = img_with_object_contours
         self._saveDebugImage(img_with_object_contours, "object_contours_drawn")
 
         # --- debug: draw minAreaRect boxes for each object (useful for polygons) ---
@@ -227,12 +229,12 @@ class ObjectMeasurer:
             width_cm = width_px / self.pixels_to_mm_divisor
             height_cm = height_px / self.pixels_to_mm_divisor
             print(f"[draw minAreaRect] obj#{idx}: w={width_cm:.4f}cm h={height_cm:.4f}cm (rotated)")
-        debug["img_object_minAreaRect"] = img_with_object_boxes
+        self.debug["img_object_minAreaRect"] = img_with_object_boxes
         self._saveDebugImage(img_with_object_boxes, "object_minAreaRect")
 
         measurements = self._measure_objects(conts2)
 
-        return (measurements, debug) if return_debug else measurements
+        return (measurements, self.debug) if return_debug else measurements
 
     def measure_from_path(
         self,

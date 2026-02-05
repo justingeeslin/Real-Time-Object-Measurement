@@ -74,6 +74,8 @@ def test_1jpg_two_objects_about_9x5(slug, image_path, reference_size_mm, expecte
 
     # assert len(measurements) == expected_count
 
+    print(measurer.debug)
+
     # Order-independent: every measurement should be ~9x5 (allow swapped orientation too).
     for m in measurements:
         ok_normal = (
