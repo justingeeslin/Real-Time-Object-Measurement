@@ -1,26 +1,22 @@
-# Real Time Object Measurement 
+# Object Measurer With Reference Of Known Dimensions
 
-## Running a Quick Demo
-`python ObjectMeasurement.py`
+## Usage
 
-[![Watch Video](https://github.com/murtazahassan/Real-Time-Object-Measurement/blob/master/Thumbnail.gif)](https://youtu.be/aHW3Hl0XX1U)
+```python
+import cv2
+from ObjectMeasurer import ObjectMeasurer
 
-Learn how to perform object measurement using OpenCV and Python. We will use an A4 paper as our guide and find the width and height of objects placed in this region.
+# SHORT SIDE / X-AXIS FIRST
+# A4_MM = (210.0, 297.0)
+LETTER_MM = (215.9, 279.4)  # 8.5in x 11in
 
-Full OpenCV 3 Hour Course: https://youtu.be/WQeoO7MI0Bs
+# Open an image with an object you want to measure ontop of another, reference object of known dimensions
+img = cv2.imread("../test-images/ucard-one-off-axis/ucard-one-off-axis.jpg")
 
-Links:
+# Construct the ObjectMeasurer with the size of the reference object
+measurer = ObjectMeasurer(reference_size_mm=LETTER_MM)
+# Get the measurements (in cm)
+measurements = measurer.measure(img)
 
-Recommend Webcam for Computer Vision:https://amzn.to/2MNtVKZ
-
-Budget Webcam:https://amzn.to/2ZP47Ug
-
-
-
-Video Links :
-
-How to install Opencv in Python:https://youtu.be/CJXIjApHYVs
-
-Real time color Detection:https://youtu.be/Tj4zEX_pdUg
-
-5 Must Know OpencCV Functions:https://youtu.be/7kHhz7nkpBw
+print(f"{[(m.width_cm, m.height_cm) for m in measurements]}")
+```
