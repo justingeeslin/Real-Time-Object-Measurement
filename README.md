@@ -20,3 +20,7 @@ measurements = measurer.measure(img)
 
 print(f"{[(m.width_cm, m.height_cm) for m in measurements]}")
 ```
+
+## Installing
+
+`pip install git+https://github.com/justingeeslin/Real-Time-Object-Measurement`
