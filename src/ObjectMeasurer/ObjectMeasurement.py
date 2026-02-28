@@ -65,6 +65,8 @@ class ObjectMeasurer:
         self.debugImageCounter = 0
         self.debug = {}
 
+        self.slug = "untitled"
+
     def _saveDebugImage(self, image: np.ndarray, name) -> None:
         try:
             cv2.imwrite(f"{self.debug_path}/{self.debugImageCounter}_{self.slug}_{name}.jpg", image)
