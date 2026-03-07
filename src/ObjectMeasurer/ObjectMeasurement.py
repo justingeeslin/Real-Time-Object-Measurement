@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
-
+from OpenCVContourSVGConverter import OpenCVContourSVGConverter
 
 @dataclass(frozen=True)
 class ContourMeasurement:
@@ -189,11 +189,15 @@ class ObjectMeasurer:
         )
         self.debug["imgContours_objects"] = imgContours2
         self.debug["object_contours"] = conts2
-
+        self.debug["object_contour_svg"] = None
         # --- debug: draw all detected object contours on the warped image ---
         img_with_object_contours = imgWarp.copy()
+
+        converter = OpenCVContourSVGConverter()
         for idx, obj in enumerate(conts2):
             cnt = obj[4]  # raw contour
+
+            self.debug["object_contour_svg"] = converter.convert([cnt])
 
             cv2.drawContours(img_with_object_contours, [cnt], -1, (0, 0, 255), 2)
             x, y, bw, bh = obj[3]
@@ -236,7 +240,7 @@ class ObjectMeasurer:
 
         measurements = self._measure_objects(conts2)
 
-        return (measurements, self.debug) if return_debug else measurements
+        return measurements
 
     def measure_from_path(
         self,

@@ -77,7 +77,7 @@ def test_1jpg_two_objects_about_9x5(slug, scale, image_path, reference_size_mm, 
 
     # assert len(measurements) == expected_count
 
-    print(measurer.debug)
+    # print(measurer.debug)
 
     # Order-independent: every measurement should be ~9x5 (allow swapped orientation too).
     for m in measurements:
@@ -94,3 +94,6 @@ def test_1jpg_two_objects_about_9x5(slug, scale, image_path, reference_size_mm, 
             f"expected about ({expected_w_cm},{expected_h_cm}) +/- {tol_cm} cm"
         )
         break
+        
+    print(measurer.debug['object_contour_svg'])
+    assert measurer.debug['object_contour_svg'] is not None
