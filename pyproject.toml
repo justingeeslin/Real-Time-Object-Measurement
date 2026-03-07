@@ -6,6 +6,7 @@ requires-python = ">=3.9"
 dependencies = [
   "numpy>=1.22",
   "opencv-python>=4.7",
+  "OpenCVContourSVGConverter @ git+https://github.com/justingeeslin/convert-opencv-contour-svg.git"
 ]
 
 [tool.setuptools]
