@@ -46,6 +46,31 @@ def cleanup_debug_images(keep_image_path: str) -> None:
                 pass
 
 @pytest.mark.parametrize(
+    "slug, scale, image_path, reference_size_mm, tol_cm",
+    [
+        # Works in Production
+        ("ucard-one", 1,"../test-images/ucard-one/ucard-one.jpg", LETTER_MM, STANDARD_TOLERANCE_CM),
+        ("iswic-folded", 1, "../test-images/iswic-folded/img_6a1db6e03ad2a7.16505140.jpg", PORTRAIT_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_CM),
+        ("iswic-folded2", 1, "../test-images/iswic-folded2/img_6a1db77d7f1973.02751931.jpg", PORTRAIT_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_CM),
+
+        # Fails in production
+        ("goldy-lightblue", 1, "../test-images/goldy-lightblue/img_6a1db5fd6d4312.38941970.jpg", PORTRAIT_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_CM),
+        ("nike-letter", 1, "../test-images/nike-letter/img_6a7b67eeb4dcd8.69842033.jpg", LETTER_MM, STANDARD_TOLERANCE_SHIRT_CM),
+    ],
+)
+def test_images_processes(slug, scale, image_path, reference_size_mm, tol_cm):
+    img = cv2.imread(image_path)
+    assert img is not None, f"Could not load image at path: {image_path}"
+
+    measurer = ObjectMeasurer(scale = scale, reference_size_mm=reference_size_mm)
+    measurer.slug = slug
+    measurer.debug_path = f"../test-images/{slug}"
+    cleanup_debug_images(image_path)
+    measurements = measurer.measure(img)
+
+    assert measurer.debug['object_contour_svg'] is not None
+
+@pytest.mark.parametrize(
     "slug, scale, image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm",
     [
         ("one", 1, "../test-images/one/one.jpg", A4_MM, 2, 9.15, 5.0, STANDARD_TOLERANCE_CM),  # adjust tol if your lighting/edges vary
@@ -60,6 +85,7 @@ def cleanup_debug_images(keep_image_path: str) -> None:
         ("cherokee", 1, "../test-images/cherokee/cherokee.jpg", ODDBALL_BLACK_POSTER_BOARD_MM, 1, 40.9575, 51.435, STANDARD_TOLERANCE_SHIRT_CM),
 
         ("iswic", 2, "../test-images/iswic/iswic.jpg", LIGHTBOX_MAT_MM, 1, 70.485, 69.5325, STANDARD_TOLERANCE_SHIRT_CM),
+        ("iswic-folded", 2, "../test-images/iswic-folded/img_6a1db6e03ad2a7.16505140.jpg", PORTRAIT_POSTER_BOARD_MM, 1, 70.485, 69.5325, STANDARD_TOLERANCE_SHIRT_CM),
     ],
 )
 def test_1jpg_two_objects_about_9x5(slug, scale, image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm):
@@ -74,6 +100,9 @@ def test_1jpg_two_objects_about_9x5(slug, scale, image_path, reference_size_mm, 
 
     print(f"Expected {expected_count} contours, got {len(measurements)}: ")
     print(f"{[(m.width_cm, m.height_cm) for m in measurements]}")
+
+    width_cm, height_cm = measurements[0].width_cm, measurements[0].height_cm
+    print(f"Width: {width_cm}, Height: {height_cm}")
 
     # assert len(measurements) == expected_count
 
@@ -94,6 +123,6 @@ def test_1jpg_two_objects_about_9x5(slug, scale, image_path, reference_size_mm, 
             f"expected about ({expected_w_cm},{expected_h_cm}) +/- {tol_cm} cm"
         )
         break
-        
+
     print(measurer.debug['object_contour_svg'])
     assert measurer.debug['object_contour_svg'] is not None
