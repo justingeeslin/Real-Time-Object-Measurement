@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Sequence, Tuple, Union
+import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
 from OpenCVContourSVGConverter import OpenCVContourSVGConverter
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class ContourMeasurement:
@@ -15,6 +20,19 @@ class ContourMeasurement:
     bbox: Tuple[int, int, int, int]  # (x, y, w, h) in pixels of the warped image
     width_cm: float
     height_cm: float
+
+
+@dataclass(frozen=True)
+class ReferenceContourCandidate:
+    """A candidate planar reference surface found in the source image."""
+
+    points: np.ndarray
+    raw_contour: np.ndarray
+    area: float
+    bbox: Tuple[int, int, int, int]
+    method: str
+    score: float
+    metadata: Dict[str, Any]
 
 
 class ObjectMeasurer:
@@ -41,8 +59,10 @@ class ObjectMeasurer:
         page_filter_corners: int = 4,
         object_filter_corners: int = 4,
         object_canny_thresholds: Tuple[int, int] = (50, 50),
+        object_min_dimension_cm: float = 1.0,
         pixels_to_mm_divisor: float = 10.0,
         warp_pad: int = 20,
+        page_kernel_size: int = 5,
     ) -> None:
         self.scale = int(scale)
         self.ref_w_mm = float(reference_size_mm[0])
@@ -55,7 +75,9 @@ class ObjectMeasurer:
         self.object_filter_corners = int(object_filter_corners)
 
         self.object_canny_thresholds = (int(object_canny_thresholds[0]), int(object_canny_thresholds[1]))
+        self.object_min_dimension_cm = float(object_min_dimension_cm)
         self.pixels_to_mm_divisor = float(pixels_to_mm_divisor)
+        self.page_kernel_size = self._odd_kernel_size(page_kernel_size)
 
         # Warped plane size in pixels (same idea as the original script)
         self.wP = int(self.ref_w_mm * self.scale)
@@ -68,11 +90,58 @@ class ObjectMeasurer:
         self.slug = "untitled"
 
     def _saveDebugImage(self, image: np.ndarray, name) -> None:
+        path = getattr(self, "debug_path", None)
+        if not path:
+            return
+
+        out_path = Path(path) / f"{self.debugImageCounter}_{self.slug}_{name}.jpg"
         try:
-            cv2.imwrite(f"{self.debug_path}/{self.debugImageCounter}_{self.slug}_{name}.jpg", image)
-        except Exception:
-            pass
+            saved = cv2.imwrite(str(out_path), image)
+            self.debug.setdefault("debug_images", []).append(
+                {"name": str(name), "path": str(out_path), "saved": bool(saved)}
+            )
+            if not saved:
+                self._trace("debug_image_save_failed", name=str(name), path=str(out_path))
+        except Exception as exc:
+            self._trace("debug_image_save_error", name=str(name), path=str(out_path), error=str(exc))
         self.debugImageCounter += 1
+
+    def _trace(self, event: str, **fields: Any) -> None:
+        if not hasattr(self, "debug"):
+            return
+        record = {"event": event}
+        record.update({key: self._debug_value(value) for key, value in fields.items()})
+        self.debug.setdefault("trace", []).append(record)
+        logger.debug("ObjectMeasurer trace: %s", record)
+
+    def _record_failure(self, code: str, message: str, **fields: Any) -> None:
+        error = {"code": code, "message": message}
+        error.update({key: self._debug_value(value) for key, value in fields.items()})
+        self.debug["status"] = "failed"
+        self.debug.setdefault("errors", []).append(error)
+        self._trace("failure", code=code, message=message, **fields)
+        logger.warning("ObjectMeasurer failed: %s (%s)", message, code)
+
+    @staticmethod
+    def _debug_value(value: Any) -> Any:
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, np.ndarray):
+            return {"shape": tuple(int(v) for v in value.shape), "dtype": str(value.dtype)}
+        if isinstance(value, tuple):
+            return tuple(ObjectMeasurer._debug_value(v) for v in value)
+        if isinstance(value, list):
+            return [ObjectMeasurer._debug_value(v) for v in value]
+        if isinstance(value, dict):
+            return {str(k): ObjectMeasurer._debug_value(v) for k, v in value.items()}
+        return value
+
+    @staticmethod
+    def _odd_kernel_size(value: int) -> int:
+        kernel_size = max(3, int(round(value)))
+        if kernel_size % 2 == 0:
+            kernel_size += 1
+        return kernel_size
 
     # ---- utilities (ported from utlis.py) ----
 
@@ -113,19 +182,58 @@ class ObjectMeasurer:
         """Measure objects in the provided BGR image."""
 
         self.debug: Dict[str, Any] = {}
+        self.debugImageCounter = 0
+        self.debug.update(
+            {
+                "status": "started",
+                "errors": [],
+                "object_contour_svg": None,
+                "measurements": [],
+            }
+        )
+        self._trace(
+            "measure_start",
+            image_shape=None if img is None else tuple(int(v) for v in img.shape),
+            scale=self.scale,
+            reference_size_mm=(self.ref_w_mm, self.ref_h_mm),
+        )
+
+        if img is None or not isinstance(img, np.ndarray) or img.size == 0:
+            self._record_failure("invalid_image", "Input image is empty or unreadable")
+            measurements: List[ContourMeasurement] = []
+            return (measurements, self.debug) if return_debug else measurements
 
         # Get the page contour
         originalSlug = self.slug
         self.slug = self.slug + "_page"
-        imgContours, conts = self._getContours(img, minArea=self.page_min_area, filter=self.page_filter_corners)
-        self.debug["imgContours_page"] = imgContours
-        self.debug["page_contours"] = conts
+        page_candidate = self._find_reference_contour(img)
 
-        if len(conts) == 0:
+        if page_candidate is None:
+            self.slug = originalSlug
+            self._record_failure(
+                "reference_not_found",
+                "No reference surface contour could be detected",
+                page_min_area=self.page_min_area,
+                page_filter_corners=self.page_filter_corners,
+            )
             measurements: List[ContourMeasurement] = []
             return (measurements, self.debug) if return_debug else measurements
 
-        biggest = conts[0][2]
+        biggest = page_candidate.points
+        self.debug["page_detection"] = {
+            "method": page_candidate.method,
+            "area": page_candidate.area,
+            "bbox": page_candidate.bbox,
+            "score": page_candidate.score,
+            "metadata": page_candidate.metadata,
+        }
+        self._trace(
+            "reference_selected",
+            method=page_candidate.method,
+            area=page_candidate.area,
+            bbox=page_candidate.bbox,
+            score=page_candidate.score,
+        )
 
         # --- debug: draw minAreaRect in blue ---
         rect = cv2.minAreaRect(biggest)
@@ -148,18 +256,24 @@ class ObjectMeasurer:
         if paper_angle < 45:
             pass
         elif paper_angle < 90+45:
-            print("Swapping width and height")
+            self._trace("reference_dimensions_swapped", angle=paper_angle)
             temp = paper_w
             paper_w = paper_h
             paper_h = temp
         else:
-            print("No swap needed its just upside down which is fine for a symetrial object")
+            self._trace("reference_upside_down", angle=paper_angle)
 
         is_landscape = paper_w > paper_h
-        print(f"{self.slug} angle: {paper_angle}")
+        self._trace(
+            "reference_orientation",
+            angle=paper_angle,
+            paper_w=paper_w,
+            paper_h=paper_h,
+            is_landscape=is_landscape,
+        )
 
         if is_landscape:
-            print(f"{self.slug} is landscape, Rotating to portrait..")
+            self._trace("reference_rotate_to_portrait")
 
             def rotate_contour_90_cw(cnt, img_shape):
                 h, w = img_shape[:2]
@@ -172,7 +286,7 @@ class ObjectMeasurer:
 
             img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
         else:
-            print(f"{self.slug} is not landscape")
+            self._trace("reference_already_portrait")
 
         self.slug = originalSlug
 
@@ -182,14 +296,15 @@ class ObjectMeasurer:
 
         imgContours2, conts2 = self._getContours(
             imgWarp,
-            minArea=100,
+            minArea=self.object_min_area,
             filter=0,
             cThr=[self.object_canny_thresholds[0], self.object_canny_thresholds[1]],
             draw=False,
+            stage="objects",
+            kernel_size=self._odd_kernel_size(5 * self.scale),
         )
         self.debug["imgContours_objects"] = imgContours2
         self.debug["object_contours"] = conts2
-        self.debug["object_contour_svg"] = None
         # --- debug: draw all detected object contours on the warped image ---
         img_with_object_contours = imgWarp.copy()
 
@@ -197,7 +312,11 @@ class ObjectMeasurer:
         for idx, obj in enumerate(conts2):
             cnt = obj[4]  # raw contour
 
-            self.debug["object_contour_svg"] = converter.convert([cnt])
+            try:
+                if self.debug["object_contour_svg"] is None:
+                    self.debug["object_contour_svg"] = converter.convert([cnt])
+            except Exception as exc:
+                self._trace("object_svg_conversion_failed", index=idx, error=str(exc))
 
             cv2.drawContours(img_with_object_contours, [cnt], -1, (0, 0, 255), 2)
             x, y, bw, bh = obj[3]
@@ -215,7 +334,13 @@ class ObjectMeasurer:
             # Print the axis-aligned bbox dimensions (blue rectangle) in cm
             bbox_w_cm = float(bw) / self.pixels_to_mm_divisor
             bbox_h_cm = float(bh) / self.pixels_to_mm_divisor
-            print(f"[draw bbox] obj#{idx}: w={bbox_w_cm:.4f}cm h={bbox_h_cm:.4f}cm (axis-aligned)")
+            self._trace(
+                "object_bbox",
+                index=idx,
+                width_cm=bbox_w_cm,
+                height_cm=bbox_h_cm,
+                bbox=(int(x), int(y), int(bw), int(bh)),
+            )
         self.debug["img_object_contours_drawn"] = img_with_object_contours
         self._saveDebugImage(img_with_object_contours, "object_contours_drawn")
 
@@ -234,13 +359,25 @@ class ObjectMeasurer:
             height_px = min(float(w_box), float(h_box))
             width_cm = width_px / self.pixels_to_mm_divisor
             height_cm = height_px / self.pixels_to_mm_divisor
-            print(f"[draw minAreaRect] obj#{idx}: w={width_cm:.4f}cm h={height_cm:.4f}cm (rotated)")
+            self._trace("object_min_area_rect", index=idx, width_cm=width_cm, height_cm=height_cm)
         self.debug["img_object_minAreaRect"] = img_with_object_boxes
         self._saveDebugImage(img_with_object_boxes, "object_minAreaRect")
 
         measurements = self._measure_objects(conts2)
+        self.debug["measurements"] = [
+            {"width_cm": m.width_cm, "height_cm": m.height_cm, "bbox": m.bbox} for m in measurements
+        ]
+        if measurements:
+            self.debug["status"] = "ok"
+            self._trace("measure_complete", object_count=len(measurements))
+        else:
+            self._record_failure(
+                "object_not_found",
+                "Reference surface was found, but no object contour passed filtering",
+                object_min_area=self.object_min_area,
+            )
 
-        return measurements
+        return (measurements, self.debug) if return_debug else measurements
 
     def measure_from_path(
         self,
@@ -264,14 +401,14 @@ class ObjectMeasurer:
             # If it's a clean 4-corner polygon, keep the legacy corner-to-corner measurement.
             # Otherwise (polygons, noisy contours), use the rotated minimum-area bounding box.
             if len(pts) == 4:
-                print("Using rectangle distance method...")
+                method = "corners"
                 nPoints = ObjectMeasurer.reorder(pts)
 
                 # Legacy behavior: divide points by scale before findDis, then divide by 10 and label as cm.
                 w_px = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[1][0] // self.scale)
                 h_px = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[2][0] // self.scale)
             else:
-                print("Using polygon distance method...")
+                method = "minAreaRect"
                 # Use raw contour for a tighter fit than the simplified approx polygon.
                 cnt = obj[4]
                 (_, _), (w_box, h_box), _ = cv2.minAreaRect(cnt)
@@ -285,9 +422,17 @@ class ObjectMeasurer:
             width_cm = width_px / self.pixels_to_mm_divisor
             height_cm = height_px / self.pixels_to_mm_divisor
 
-            if getattr(self, "debug", False):
-                method = "corners" if len(pts) == 4 else "minAreaRect"
-                print(f"[measure] {method}: w={width_cm:.2f}cm h={height_cm:.2f}cm")
+            if min(width_cm, height_cm) < self.object_min_dimension_cm:
+                self._trace(
+                    "object_measurement_skipped",
+                    reason="below_min_dimension",
+                    width_cm=width_cm,
+                    height_cm=height_cm,
+                    min_dimension_cm=self.object_min_dimension_cm,
+                )
+                continue
+
+            self._trace("object_measured", method=method, width_cm=width_cm, height_cm=height_cm)
 
             x, y, bw, bh = obj[3]
             out.append(
@@ -305,14 +450,27 @@ class ObjectMeasurer:
     def _getContours(
         self,
         img: np.ndarray,
-        cThr: List[int] = [100, 100],
+        cThr: Sequence[int] = (100, 100),
         minArea: int = 1000,
         filter: int = 0,
         draw: bool = False,
+        stage: str = "contours",
+        kernel_size: Optional[int] = None,
+        retrieval_mode: int = cv2.RETR_EXTERNAL,
+        approx_epsilon: float = 0.02,
     ) -> Tuple[np.ndarray, List[Any]]:
         # Blur and Edge Detect based on scale
-        kernel_size = round(5 * self.scale)
-        print(f"[getContours] kernel_size={kernel_size}")
+        kernel_size = self._odd_kernel_size(kernel_size if kernel_size is not None else 5 * self.scale)
+        self._trace(
+            "contour_preprocess_start",
+            stage=stage,
+            kernel_size=kernel_size,
+            canny_thresholds=(int(cThr[0]), int(cThr[1])),
+            min_area=minArea,
+            filter=filter,
+            retrieval_mode=int(retrieval_mode),
+            approx_epsilon=approx_epsilon,
+        )
 
         imgGray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         self._saveDebugImage(imgGray, "gray")
@@ -320,19 +478,19 @@ class ObjectMeasurer:
         self._saveDebugImage(imgBlur, "blur")
         imgCanny = cv2.Canny(imgBlur, cThr[0], cThr[1])
         self._saveDebugImage(imgCanny, "edgeDetect")
-        kernel = np.ones((kernel_size, kernel_size))
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
         imgDial = cv2.dilate(imgCanny, kernel, iterations=3)
         self._saveDebugImage(imgDial, "dilate")
         imgThre = cv2.erode(imgDial, kernel, iterations=2)
         self._saveDebugImage(imgThre, "_erode")
 
-        contours, hiearchy = cv2.findContours(imgThre, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, hiearchy = cv2.findContours(imgThre, retrieval_mode, cv2.CHAIN_APPROX_SIMPLE)
         finalCountours: List[Any] = []
         for i in contours:
             area = cv2.contourArea(i)
             if area > minArea:
                 peri = cv2.arcLength(i, True)
-                approx = cv2.approxPolyDP(i, 0.02 * peri, True)
+                approx = cv2.approxPolyDP(i, approx_epsilon * peri, True)
                 bbox = cv2.boundingRect(approx)
                 if filter > 0:
                     if len(approx) == filter:
@@ -344,7 +502,286 @@ class ObjectMeasurer:
         if draw:
             for con in finalCountours:
                 cv2.drawContours(img, con[4], -1, (0, 0, 255), 3)
+        self._trace(
+            "contour_preprocess_complete",
+            stage=stage,
+            contour_count=len(contours),
+            accepted_count=len(finalCountours),
+            top_candidates=self._contour_summaries(finalCountours[:5]),
+        )
         return img, finalCountours
+
+    def _find_reference_contour(self, img: np.ndarray) -> Optional[ReferenceContourCandidate]:
+        imgContours, conts = self._getContours(
+            img,
+            minArea=self.page_min_area,
+            filter=self.page_filter_corners,
+            stage="page_primary",
+            kernel_size=self.page_kernel_size,
+        )
+        self.debug["imgContours_page"] = imgContours
+        self.debug["page_contours"] = conts
+
+        if conts:
+            contour = conts[0]
+            return self._make_reference_candidate(
+                points=contour[2],
+                raw_contour=contour[4],
+                method="canny_external_4_point",
+                metadata={"corner_count": contour[0]},
+                img_shape=img.shape,
+            )
+
+        self._trace("reference_primary_empty")
+
+        saturated = self._reference_candidates_from_color(img, color_family="saturated")
+        if saturated:
+            best = saturated[0]
+            self._trace(
+                "reference_color_saturated_best",
+                method=best.method,
+                score=best.score,
+                area=best.area,
+                bbox=best.bbox,
+            )
+            if best.score <= 0.28 and best.metadata.get("area_fraction", 0.0) >= 0.08:
+                return best
+
+        bright = self._reference_candidates_from_color(img, color_family="bright")
+        if bright:
+            best = bright[0]
+            self._trace(
+                "reference_color_bright_best",
+                method=best.method,
+                score=best.score,
+                area=best.area,
+                bbox=best.bbox,
+            )
+            if best.score <= 0.32 and best.metadata.get("area_fraction", 0.0) >= 0.08:
+                return best
+
+        relaxed = self._reference_candidates_from_relaxed_edges(img)
+        if relaxed:
+            best = relaxed[0]
+            self._trace(
+                "reference_relaxed_edges_best",
+                method=best.method,
+                score=best.score,
+                area=best.area,
+                bbox=best.bbox,
+            )
+            if best.score <= 0.35:
+                return best
+
+        return None
+
+    def _reference_candidates_from_color(
+        self, img: np.ndarray, *, color_family: str
+    ) -> List[ReferenceContourCandidate]:
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        masks: List[Tuple[str, np.ndarray]] = []
+
+        if color_family == "saturated":
+            masks.extend(self._dominant_hue_masks(hsv))
+        elif color_family == "bright":
+            masks.append(
+                (
+                    "bright_low_saturation_reference",
+                    cv2.inRange(hsv, np.array([0, 0, 135]), np.array([179, 80, 255])),
+                )
+            )
+        else:
+            raise ValueError(f"Unknown color family: {color_family}")
+
+        candidates: List[ReferenceContourCandidate] = []
+        kernel_width = self._odd_kernel_size(max(9, min(img.shape[:2]) // 120))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_width, kernel_width))
+
+        for name, mask in masks:
+            cleaned = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=3)
+            cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel, iterations=1)
+            contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            strategy_candidates = self._candidates_from_contours(
+                contours,
+                img_shape=img.shape,
+                method=name,
+                min_area=max(self.page_min_area, int(img.shape[0] * img.shape[1] * 0.015)),
+            )
+            candidates.extend(strategy_candidates)
+            self._trace(
+                "reference_color_candidates",
+                family=color_family,
+                method=name,
+                contour_count=len(contours),
+                accepted_count=len(strategy_candidates),
+                top_candidates=self._candidate_summaries(strategy_candidates[:5]),
+            )
+
+        if color_family == "saturated":
+            large_surface_candidates = [
+                item for item in candidates if item.metadata.get("area_fraction", 0.0) >= 0.25
+            ]
+            if large_surface_candidates:
+                candidates = large_surface_candidates
+
+        return sorted(candidates, key=lambda item: item.score)
+
+    def _dominant_hue_masks(self, hsv: np.ndarray) -> List[Tuple[str, np.ndarray]]:
+        hue, saturation, value = cv2.split(hsv)
+        saturated_pixels = (saturation > 25) & (value > 50)
+        if not np.any(saturated_pixels):
+            return []
+
+        hist = cv2.calcHist([hue], [0], saturated_pixels.astype(np.uint8), [18], [0, 180]).reshape(-1)
+        top_bins = np.argsort(hist)[::-1][:4]
+
+        masks: List[Tuple[str, np.ndarray]] = []
+        for bin_index in top_bins:
+            if hist[bin_index] < 0.02 * float(saturated_pixels.sum()):
+                continue
+            center = int((bin_index + 0.5) * 10)
+            lower = center - 12
+            upper = center + 12
+            base_mask = cv2.inRange(hsv, np.array([0, 25, 50]), np.array([179, 220, 255]))
+            if lower < 0:
+                hue_mask = cv2.bitwise_or(
+                    cv2.inRange(hue, 0, upper),
+                    cv2.inRange(hue, 180 + lower, 179),
+                )
+            elif upper > 179:
+                hue_mask = cv2.bitwise_or(
+                    cv2.inRange(hue, lower, 179),
+                    cv2.inRange(hue, 0, upper - 180),
+                )
+            else:
+                hue_mask = cv2.inRange(hue, lower, upper)
+            masks.append((f"saturated_hue_{center}", cv2.bitwise_and(base_mask, hue_mask)))
+
+        return masks
+
+    def _reference_candidates_from_relaxed_edges(self, img: np.ndarray) -> List[ReferenceContourCandidate]:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (5, 5), 1)
+        canny = cv2.Canny(blur, 100, 100)
+        kernel = np.ones((self.page_kernel_size, self.page_kernel_size), np.uint8)
+        threshold = cv2.erode(cv2.dilate(canny, kernel, iterations=3), kernel, iterations=2)
+        contours, _ = cv2.findContours(threshold, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        candidates = self._candidates_from_contours(
+            contours,
+            img_shape=img.shape,
+            method="canny_retr_list_relaxed",
+            min_area=self.page_min_area,
+            epsilon_values=(0.01, 0.015, 0.02, 0.03, 0.05, 0.08),
+        )
+        self._trace(
+            "reference_relaxed_edge_candidates",
+            contour_count=len(contours),
+            accepted_count=len(candidates),
+            top_candidates=self._candidate_summaries(candidates[:5]),
+        )
+        return sorted(candidates, key=lambda item: item.score)
+
+    def _candidates_from_contours(
+        self,
+        contours: Sequence[np.ndarray],
+        *,
+        img_shape: Tuple[int, ...],
+        method: str,
+        min_area: int,
+        epsilon_values: Sequence[float] = (0.01, 0.02, 0.03, 0.05, 0.08),
+    ) -> List[ReferenceContourCandidate]:
+        candidates: List[ReferenceContourCandidate] = []
+        for contour in contours:
+            area = float(cv2.contourArea(contour))
+            if area < min_area:
+                continue
+            peri = cv2.arcLength(contour, True)
+            if peri <= 0:
+                continue
+            for epsilon in epsilon_values:
+                approx = cv2.approxPolyDP(contour, epsilon * peri, True)
+                if len(approx) == 4 and cv2.isContourConvex(approx):
+                    candidate = self._make_reference_candidate(
+                        points=approx,
+                        raw_contour=contour,
+                        method=method,
+                        metadata={"approx_epsilon": float(epsilon), "corner_count": int(len(approx))},
+                        img_shape=img_shape,
+                    )
+                    candidates.append(candidate)
+                    break
+        return sorted(candidates, key=lambda item: item.score)
+
+    def _make_reference_candidate(
+        self,
+        *,
+        points: np.ndarray,
+        raw_contour: np.ndarray,
+        method: str,
+        metadata: Dict[str, Any],
+        img_shape: Tuple[int, ...],
+    ) -> ReferenceContourCandidate:
+        points = points.astype(np.int32)
+        area = float(cv2.contourArea(raw_contour))
+        x, y, w, h = cv2.boundingRect(points)
+        rect = cv2.minAreaRect(points)
+        (_, _), (rect_w, rect_h), angle = rect
+        image_h, image_w = img_shape[:2]
+        ref_ratio = max(self.ref_w_mm, self.ref_h_mm) / max(1.0, min(self.ref_w_mm, self.ref_h_mm))
+        rect_ratio = max(rect_w, rect_h) / max(1.0, min(rect_w, rect_h))
+        ratio_error = abs(float(np.log(max(rect_ratio, 1e-6) / ref_ratio)))
+        touches_edge = x <= 2 or y <= 2 or x + w >= image_w - 2 or y + h >= image_h - 2
+        area_fraction = area / float(image_h * image_w)
+        fill_ratio = area / float(max(1, w * h))
+        score = ratio_error
+        score += 0.45 if touches_edge else 0.0
+        score += max(0.0, 0.05 - area_fraction) * 3.0
+        score += max(0.0, 0.55 - fill_ratio)
+
+        candidate_metadata = dict(metadata)
+        candidate_metadata.update(
+            {
+                "rect_ratio": float(rect_ratio),
+                "reference_ratio": float(ref_ratio),
+                "ratio_error": float(ratio_error),
+                "touches_edge": bool(touches_edge),
+                "area_fraction": float(area_fraction),
+                "fill_ratio": float(fill_ratio),
+                "angle": float(angle),
+            }
+        )
+        return ReferenceContourCandidate(
+            points=points,
+            raw_contour=raw_contour,
+            area=area,
+            bbox=(int(x), int(y), int(w), int(h)),
+            method=method,
+            score=float(score),
+            metadata=candidate_metadata,
+        )
+
+    def _candidate_summaries(self, candidates: Sequence[ReferenceContourCandidate]) -> List[Dict[str, Any]]:
+        return [
+            {
+                "method": c.method,
+                "area": round(c.area, 2),
+                "bbox": c.bbox,
+                "score": round(c.score, 4),
+                "rect_ratio": round(float(c.metadata.get("rect_ratio", 0.0)), 4),
+                "touches_edge": bool(c.metadata.get("touches_edge", False)),
+            }
+            for c in candidates
+        ]
+
+    def _contour_summaries(self, contours: Sequence[Any]) -> List[Dict[str, Any]]:
+        return [
+            {
+                "corners": int(c[0]),
+                "area": round(float(c[1]), 2),
+                "bbox": tuple(int(v) for v in c[3]),
+            }
+            for c in contours
+        ]
 
 
 def _draw_measurements(imgWarp: np.ndarray, measurements: Sequence[ContourMeasurement]) -> np.ndarray:
