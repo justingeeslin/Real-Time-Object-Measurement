@@ -63,6 +63,8 @@ class ObjectMeasurer:
         pixels_to_mm_divisor: float = 10.0,
         warp_pad: int = 20,
         page_kernel_size: int = 5,
+        debug_path: Optional[Union[str, Path]] = None,
+        save_debug_images: Optional[bool] = None,
     ) -> None:
         self.scale = int(scale)
         self.ref_w_mm = float(reference_size_mm[0])
@@ -86,16 +88,24 @@ class ObjectMeasurer:
         self.warp_pad = int(warp_pad)
         self.debugImageCounter = 0
         self.debug = {}
+        self.debug_path = None if debug_path is None else str(debug_path)
+        self.save_debug_images = save_debug_images
 
         self.slug = "untitled"
 
     def _saveDebugImage(self, image: np.ndarray, name) -> None:
         path = getattr(self, "debug_path", None)
+        save_debug_images = getattr(self, "save_debug_images", None)
+        should_save = bool(path) if save_debug_images is None else bool(save_debug_images)
+        if not should_save:
+            return
         if not path:
+            self._trace("debug_image_save_skipped", name=str(name), reason="debug_path_not_set")
             return
 
         out_path = Path(path) / f"{self.debugImageCounter}_{self.slug}_{name}.jpg"
         try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
             saved = cv2.imwrite(str(out_path), image)
             self.debug.setdefault("debug_images", []).append(
                 {"name": str(name), "path": str(out_path), "saved": bool(saved)}

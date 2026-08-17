@@ -1,6 +1,7 @@
 import cv2
 import logging
 import numpy as np
+import os
 import pytest
 from pathlib import Path
 
@@ -24,13 +25,21 @@ STANDARD_TOLERANCE_CM = 0.33
 STANDARD_TOLERANCE_SHIRT_CM = 3
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TEST_IMAGES_ROOT = REPO_ROOT / "test-images"
+SAVE_DEBUG_IMAGES_ENV = "OBJECT_MEASURER_SAVE_DEBUG_IMAGES"
 
 
 def fixture_path(slug: str, filename: str) -> Path:
     return TEST_IMAGES_ROOT / slug / filename
 
 
-def debug_path(tmp_path: Path, slug: str) -> str:
+def save_debug_images_enabled() -> bool:
+    return os.getenv(SAVE_DEBUG_IMAGES_ENV, "True").lower() in {"1", "true", "yes", "on"}
+
+
+def debug_path(tmp_path: Path, slug: str, image_path: Path) -> str:
+    if save_debug_images_enabled():
+        return str(image_path.parent)
+
     path = tmp_path / slug
     path.mkdir()
     return str(path)
@@ -52,6 +61,8 @@ def debug_path(tmp_path: Path, slug: str) -> str:
         ("ucard-two", 1, fixture_path("ucard-two", "ucard-two.jpg"), LETTER_MM, STANDARD_TOLERANCE_CM),
         ("ucard-one-off-axis", 1, fixture_path("ucard-one-off-axis", "ucard-one-off-axis.jpg"), LETTER_MM, STANDARD_TOLERANCE_CM),
         ("ucard-two-off-axis", 1, fixture_path("ucard-two-off-axis", "ucard-two-off-axis.jpg"), LETTER_MM, STANDARD_TOLERANCE_CM),
+        ("nike-letter-one", 1, fixture_path("nike-letter-one", "img_6a7c9d736092f6.97385818.jpg"), LETTER_MM, STANDARD_TOLERANCE_CM),
+        ("nike-letter-one-off-axis", 1, fixture_path("nike-letter-one-off-axis", "img_6a838cf9edde22.59423143.jpg"), LETTER_MM, STANDARD_TOLERANCE_CM),
         ("iswic", 1, fixture_path("iswic", "iswic.jpg"), LIGHTBOX_MAT_MM, STANDARD_TOLERANCE_SHIRT_CM),
         ("goldy", 1, fixture_path("goldy", "goldy.jpg"), ODDBALL_BLACK_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_CM),
         ("cherokee", 1, fixture_path("cherokee", "cherokee.jpg"), ODDBALL_BLACK_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_CM),
@@ -61,9 +72,13 @@ def test_images_processes(slug, scale, image_path, reference_size_mm, tol_cm, tm
     img = cv2.imread(str(image_path))
     assert img is not None, f"Could not load image at path: {image_path}"
 
-    measurer = ObjectMeasurer(scale = scale, reference_size_mm=reference_size_mm)
+    measurer = ObjectMeasurer(
+        scale = scale,
+        reference_size_mm=reference_size_mm,
+        debug_path=debug_path(tmp_path, slug, image_path),
+        save_debug_images=save_debug_images_enabled(),
+    )
     measurer.slug = slug
-    measurer.debug_path = debug_path(tmp_path, slug)
     measurements, debug = measurer.measure(img, return_debug=True)
 
     assert measurements
@@ -81,8 +96,9 @@ def test_images_processes(slug, scale, image_path, reference_size_mm, tol_cm, tm
         ("ucard-two", 1, fixture_path("ucard-two", "ucard-two.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
         ("ucard-one-off-axis", 1, fixture_path("ucard-one-off-axis", "ucard-one-off-axis.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
         ("ucard-two-off-axis", 1, fixture_path("ucard-two-off-axis", "ucard-two-off-axis.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("nike-letter", 1, fixture_path("nike-letter", "img_6a7b67eeb4dcd8.69842033.jpg"), ENVELOPE_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-
+        ("nike-envelope", 1, fixture_path("nike-envelope", "img_6a7b67eeb4dcd8.69842033.jpg"), ENVELOPE_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
+        ("nike-letter-one", 1, fixture_path("nike-letter-one", "img_6a7c9d736092f6.97385818.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM,STANDARD_TOLERANCE_CM),
+        ("nike-letter-one-off-axis", 1, fixture_path("nike-letter-one-off-axis", "img_6a838cf9edde22.59423143.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
         ("iswic", 1, fixture_path("iswic", "iswic.jpg"), LIGHTBOX_MAT_MM, 1, 70.485, 69.5325, STANDARD_TOLERANCE_SHIRT_CM),
         ("goldy", 1, fixture_path("goldy", "goldy.jpg"), ODDBALL_BLACK_POSTER_BOARD_MM, 1, 45.72, 40.5, STANDARD_TOLERANCE_SHIRT_CM),
         ("cherokee", 1, fixture_path("cherokee", "cherokee.jpg"), ODDBALL_BLACK_POSTER_BOARD_MM, 1, 40.9575, 51.435, STANDARD_TOLERANCE_SHIRT_CM),
@@ -94,9 +110,13 @@ def test_1jpg_two_objects_about_9x5(slug, scale, image_path, reference_size_mm, 
     img = cv2.imread(str(image_path))
     assert img is not None, f"Could not load image at path: {image_path}"
 
-    measurer = ObjectMeasurer(scale = scale, reference_size_mm=reference_size_mm)
+    measurer = ObjectMeasurer(
+        scale = scale,
+        reference_size_mm=reference_size_mm,
+        debug_path=debug_path(tmp_path, slug, image_path),
+        save_debug_images=save_debug_images_enabled(),
+    )
     measurer.slug = slug
-    measurer.debug_path = debug_path(tmp_path, slug)
     measurements = measurer.measure(img)
 
     print(f"Expected {expected_count} contours, got {len(measurements)}: ")
@@ -141,3 +161,24 @@ def test_failed_measurement_includes_debug_trace_and_logs(caplog):
     assert debug["errors"][0]["code"] == "reference_not_found"
     assert any(item["event"] == "failure" for item in debug["trace"])
     assert "reference_not_found" in caplog.text
+
+
+def test_debug_images_can_be_saved_to_requested_folder(tmp_path):
+    image_path = fixture_path("ucard-one", "ucard-one.jpg")
+    img = cv2.imread(str(image_path))
+    assert img is not None
+
+    measurer = ObjectMeasurer(
+        reference_size_mm=LETTER_MM,
+        debug_path=tmp_path,
+        save_debug_images=True,
+    )
+    measurer.slug = "ucard-one"
+    measurements, debug = measurer.measure(img, return_debug=True)
+
+    saved_images = [Path(item["path"]) for item in debug["debug_images"] if item["saved"]]
+    assert measurements
+    assert saved_images
+    assert all(path.parent == tmp_path for path in saved_images)
+    assert any(path.name.endswith("_page_gray.jpg") for path in saved_images)
+    assert any(path.name.endswith("_warped.jpg") for path in saved_images)
