@@ -532,17 +532,35 @@ class ObjectMeasurer:
         self.debug["imgContours_page"] = imgContours
         self.debug["page_contours"] = conts
 
+        primary_candidate: Optional[ReferenceContourCandidate] = None
         if conts:
             contour = conts[0]
-            return self._make_reference_candidate(
+            primary_candidate = self._make_reference_candidate(
                 points=contour[2],
                 raw_contour=contour[4],
                 method="canny_external_4_point",
                 metadata={"corner_count": contour[0]},
                 img_shape=img.shape,
             )
+            self._trace(
+                "reference_primary_best",
+                method=primary_candidate.method,
+                score=primary_candidate.score,
+                area=primary_candidate.area,
+                bbox=primary_candidate.bbox,
+            )
+            if primary_candidate.score <= 0.35:
+                return primary_candidate
 
-        self._trace("reference_primary_empty")
+            self._trace(
+                "reference_primary_suspicious",
+                method=primary_candidate.method,
+                score=primary_candidate.score,
+                area=primary_candidate.area,
+                bbox=primary_candidate.bbox,
+            )
+        else:
+            self._trace("reference_primary_empty")
 
         saturated = self._reference_candidates_from_color(img, color_family="saturated")
         if saturated:
@@ -555,7 +573,15 @@ class ObjectMeasurer:
                 bbox=best.bbox,
             )
             if best.score <= 0.28 and best.metadata.get("area_fraction", 0.0) >= 0.08:
-                return best
+                if self._should_replace_primary_reference(best, primary_candidate):
+                    self._trace(
+                        "reference_primary_replaced",
+                        replacement_method=best.method,
+                        replacement_score=best.score,
+                        primary_score=None if primary_candidate is None else primary_candidate.score,
+                    )
+                    return best
+                self._trace("reference_fallback_rejected", method=best.method, reason="not_better_than_primary")
 
         bright = self._reference_candidates_from_color(img, color_family="bright")
         if bright:
@@ -568,7 +594,15 @@ class ObjectMeasurer:
                 bbox=best.bbox,
             )
             if best.score <= 0.32 and best.metadata.get("area_fraction", 0.0) >= 0.08:
-                return best
+                if self._should_replace_primary_reference(best, primary_candidate):
+                    self._trace(
+                        "reference_primary_replaced",
+                        replacement_method=best.method,
+                        replacement_score=best.score,
+                        primary_score=None if primary_candidate is None else primary_candidate.score,
+                    )
+                    return best
+                self._trace("reference_fallback_rejected", method=best.method, reason="not_better_than_primary")
 
         relaxed = self._reference_candidates_from_relaxed_edges(img)
         if relaxed:
@@ -580,10 +614,45 @@ class ObjectMeasurer:
                 area=best.area,
                 bbox=best.bbox,
             )
-            if best.score <= 0.35:
-                return best
+            if best.score <= 0.35 and best.metadata.get("area_fraction", 0.0) >= 0.08:
+                if self._should_replace_primary_reference(best, primary_candidate):
+                    self._trace(
+                        "reference_primary_replaced",
+                        replacement_method=best.method,
+                        replacement_score=best.score,
+                        primary_score=None if primary_candidate is None else primary_candidate.score,
+                    )
+                    return best
+                self._trace("reference_fallback_rejected", method=best.method, reason="not_better_than_primary")
+
+        if primary_candidate is not None:
+            self._trace(
+                "reference_primary_kept",
+                method=primary_candidate.method,
+                score=primary_candidate.score,
+                reason="no_better_large_fallback",
+            )
+            return primary_candidate
 
         return None
+
+    def _should_replace_primary_reference(
+        self,
+        candidate: ReferenceContourCandidate,
+        primary_candidate: Optional[ReferenceContourCandidate],
+    ) -> bool:
+        if primary_candidate is None:
+            return True
+
+        candidate_area_fraction = float(candidate.metadata.get("area_fraction", 0.0))
+        primary_area_fraction = float(primary_candidate.metadata.get("area_fraction", 0.0))
+
+        # A fallback must be much better and comparably large; otherwise an internal
+        # object with a good aspect ratio can steal the role of the reference plane.
+        return (
+            candidate.score <= primary_candidate.score - 0.10
+            and candidate_area_fraction >= max(0.08, primary_area_fraction * 0.65)
+        )
 
     def _reference_candidates_from_color(
         self, img: np.ndarray, *, color_family: str
