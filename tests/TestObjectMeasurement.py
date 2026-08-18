@@ -58,6 +58,7 @@ def debug_path(tmp_path: Path, slug: str, image_path: Path) -> str:
         # ("nike-envelope", 1, fixture_path("nike-envelope", "img_6a7b6ba3eb1276.03284004.jpg"), ENVELOPE_MM, STANDARD_TOLERANCE_SHIRT_CM),
 
         ("mock-box-white-blue-one", 1, fixture_path("mock-box-white-blue-one", "IMG_0315.jpeg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
+        ("mock-box-white-blue-goldy-one", 1, fixture_path("mock-box-white-blue-goldy-one", "IMG_0317.jpeg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
 
         # Broader source-photo smoke coverage
         ("one", 1, fixture_path("one", "one.jpg"), A4_MM, STANDARD_TOLERANCE_CM),
