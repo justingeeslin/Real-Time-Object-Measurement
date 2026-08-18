@@ -54,7 +54,7 @@ def debug_path(tmp_path: Path, slug: str, image_path: Path) -> str:
 
         # Fails in production
         ("goldy-lightblue", 1, fixture_path("goldy-lightblue", "img_6a1db5fd6d4312.38941970.jpg"), PORTRAIT_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_CM),
-        ("nike-envelope", 1, fixture_path("nike-envelope", "img_6a7b67eeb4dcd8.69842033.jpg"), LETTER_MM, STANDARD_TOLERANCE_SHIRT_CM),
+        # ("nike-envelope", 1, fixture_path("nike-envelope", "img_6a7b6ba3eb1276.03284004.jpg"), ENVELOPE_MM, STANDARD_TOLERANCE_SHIRT_CM),
 
         # Broader source-photo smoke coverage
         ("one", 1, fixture_path("one", "one.jpg"), A4_MM, STANDARD_TOLERANCE_CM),
@@ -96,7 +96,7 @@ def test_images_processes(slug, scale, image_path, reference_size_mm, tol_cm, tm
         ("ucard-two", 1, fixture_path("ucard-two", "ucard-two.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
         ("ucard-one-off-axis", 1, fixture_path("ucard-one-off-axis", "ucard-one-off-axis.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
         ("ucard-two-off-axis", 1, fixture_path("ucard-two-off-axis", "ucard-two-off-axis.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("nike-envelope", 1, fixture_path("nike-envelope", "img_6a7b67eeb4dcd8.69842033.jpg"), ENVELOPE_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
+        # ("nike-envelope", 1, fixture_path("nike-envelope", "img_6a7b6ba3eb1276.03284004.jpg"), ENVELOPE_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
         ("nike-letter-one", 1, fixture_path("nike-letter-one", "img_6a7c9d736092f6.97385818.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM,STANDARD_TOLERANCE_CM),
         ("nike-letter-two", 1, fixture_path("nike-letter-two", "img_6a7b67eeb4dcd8.69842033.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM,STANDARD_TOLERANCE_CM),
         ("nike-letter-one-off-axis", 1, fixture_path("nike-letter-one-off-axis", "img_6a838cf9edde22.59423143.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
