@@ -13,6 +13,7 @@ LETTER_MM = (215.9, 279.4)  # 8.5in x 11in
 PORTRAIT_POSTER_BOARD_MM = (561.975, 711.2)
 ODDBALL_BLACK_POSTER_BOARD_MM = (508, 752.475)
 DOUBLE_STACKED_LANDSCAPE_POSTER_BOARD_MM = (711.2, 1123.95)
+MOCK_BOX_MM = (762, 755.65)
 LIGHTBOX_MAT_MM = (746.125, 1098.55)
 ENVELOPE_MM = (184, 133)
 #ENVELOPE_MM = (165, 108)
@@ -56,6 +57,8 @@ def debug_path(tmp_path: Path, slug: str, image_path: Path) -> str:
         ("goldy-lightblue", 1, fixture_path("goldy-lightblue", "img_6a1db5fd6d4312.38941970.jpg"), PORTRAIT_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_CM),
         # ("nike-envelope", 1, fixture_path("nike-envelope", "img_6a7b6ba3eb1276.03284004.jpg"), ENVELOPE_MM, STANDARD_TOLERANCE_SHIRT_CM),
 
+        ("mock-box-white-blue-one", 1, fixture_path("mock-box-white-blue-one", "IMG_0315.jpeg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
+
         # Broader source-photo smoke coverage
         ("one", 1, fixture_path("one", "one.jpg"), A4_MM, STANDARD_TOLERANCE_CM),
         ("ucard-two", 1, fixture_path("ucard-two", "ucard-two.jpg"), LETTER_MM, STANDARD_TOLERANCE_CM),
@@ -86,6 +89,39 @@ def test_images_processes(slug, scale, image_path, reference_size_mm, tol_cm, tm
     print(measurements)
     assert debug["object_contour_svg"] is not None
     assert debug["trace"]
+
+
+def test_mock_box_white_blue_one_detects_large_central_shirt_contour(tmp_path):
+    slug = "mock-box-white-blue-one"
+    image_path = fixture_path(slug, "IMG_0315.jpeg")
+    img = cv2.imread(str(image_path))
+    assert img is not None, f"Could not load image at path: {image_path}"
+
+    measurer = ObjectMeasurer(
+        scale=1,
+        reference_size_mm=MOCK_BOX_MM,
+        debug_path=debug_path(tmp_path, slug, image_path),
+        save_debug_images=False,
+    )
+    measurer.slug = slug
+    measurements, debug = measurer.measure(img, return_debug=True)
+
+    assert debug["status"] == "ok"
+    assert measurements
+
+    dominant_measurement = max(measurements, key=lambda m: m.bbox[2] * m.bbox[3])
+    warped_h, warped_w = debug["imgWarp"].shape[:2]
+    x, y, w, h = dominant_measurement.bbox
+    center_x = (x + (w / 2)) / warped_w
+    center_y = (y + (h / 2)) / warped_h
+    bbox_area_fraction = (w * h) / (warped_w * warped_h)
+
+    assert 0.35 <= center_x <= 0.65
+    assert 0.35 <= center_y <= 0.65
+    assert bbox_area_fraction >= 0.75
+    assert dominant_measurement.width_cm == pytest.approx(70.4, abs=STANDARD_TOLERANCE_SHIRT_CM)
+    assert dominant_measurement.height_cm == pytest.approx(64.5, abs=STANDARD_TOLERANCE_SHIRT_CM)
+
 
 @pytest.mark.parametrize(
     "slug, scale, image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm",

@@ -625,6 +625,37 @@ class ObjectMeasurer:
                     return best
                 self._trace("reference_fallback_rejected", method=best.method, reason="not_better_than_primary")
 
+        low_threshold_relaxed = self._reference_candidates_from_relaxed_edges(
+            img,
+            canny_thresholds=self.object_canny_thresholds,
+            method="canny_retr_list_low_threshold_large",
+        )
+        large_interior_candidates = [
+            item
+            for item in low_threshold_relaxed
+            if item.metadata.get("area_fraction", 0.0) >= 0.40
+            and not item.metadata.get("touches_edge", False)
+        ]
+        if large_interior_candidates:
+            best = large_interior_candidates[0]
+            self._trace(
+                "reference_low_threshold_large_best",
+                method=best.method,
+                score=best.score,
+                area=best.area,
+                bbox=best.bbox,
+            )
+            if best.score <= 0.50:
+                if self._should_replace_primary_reference(best, primary_candidate):
+                    self._trace(
+                        "reference_primary_replaced",
+                        replacement_method=best.method,
+                        replacement_score=best.score,
+                        primary_score=None if primary_candidate is None else primary_candidate.score,
+                    )
+                    return best
+                self._trace("reference_fallback_rejected", method=best.method, reason="not_better_than_primary")
+
         if primary_candidate is not None:
             self._trace(
                 "reference_primary_kept",
@@ -738,22 +769,30 @@ class ObjectMeasurer:
 
         return masks
 
-    def _reference_candidates_from_relaxed_edges(self, img: np.ndarray) -> List[ReferenceContourCandidate]:
+    def _reference_candidates_from_relaxed_edges(
+        self,
+        img: np.ndarray,
+        *,
+        canny_thresholds: Tuple[int, int] = (100, 100),
+        method: str = "canny_retr_list_relaxed",
+    ) -> List[ReferenceContourCandidate]:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         blur = cv2.GaussianBlur(gray, (5, 5), 1)
-        canny = cv2.Canny(blur, 100, 100)
+        canny = cv2.Canny(blur, canny_thresholds[0], canny_thresholds[1])
         kernel = np.ones((self.page_kernel_size, self.page_kernel_size), np.uint8)
         threshold = cv2.erode(cv2.dilate(canny, kernel, iterations=3), kernel, iterations=2)
         contours, _ = cv2.findContours(threshold, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         candidates = self._candidates_from_contours(
             contours,
             img_shape=img.shape,
-            method="canny_retr_list_relaxed",
+            method=method,
             min_area=self.page_min_area,
             epsilon_values=(0.01, 0.015, 0.02, 0.03, 0.05, 0.08),
         )
         self._trace(
             "reference_relaxed_edge_candidates",
+            method=method,
+            canny_thresholds=(int(canny_thresholds[0]), int(canny_thresholds[1])),
             contour_count=len(contours),
             accepted_count=len(candidates),
             top_candidates=self._candidate_summaries(candidates[:5]),
