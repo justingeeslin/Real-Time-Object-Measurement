@@ -1,9 +1,11 @@
 import cv2
+from contextlib import contextmanager
 import logging
 import numpy as np
 import os
 import pytest
 from pathlib import Path
+from pprint import pprint
 
 from ObjectMeasurer import ObjectMeasurer
 
@@ -27,6 +29,18 @@ STANDARD_TOLERANCE_SHIRT_CM = 3
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TEST_IMAGES_ROOT = REPO_ROOT / "test-images"
 SAVE_DEBUG_IMAGES_ENV = "OBJECT_MEASURER_SAVE_DEBUG_IMAGES"
+DIAGNOSTIC_TRACE_EVENTS = {
+    "failure",
+    "warning",
+    "contour_erode_complete",
+    "contour_find_complete",
+    "contour_preprocess_complete",
+    "min_area_rect_complete",
+    "object_bbox",
+    "object_min_area_rect",
+    "object_measured",
+    "object_measurement_skipped",
+}
 
 
 def fixture_path(slug: str, filename: str) -> Path:
@@ -44,6 +58,44 @@ def debug_path(tmp_path: Path, slug: str, image_path: Path) -> str:
     path = tmp_path / slug
     path.mkdir()
     return str(path)
+
+
+def print_object_measurer_debug(debug, *, label: str) -> None:
+    print(f"\nObjectMeasurer debug for failed test: {label}")
+    if not debug:
+        print("No debug payload was captured.")
+        return
+
+    for key in (
+        "status",
+        "errors",
+        "warnings",
+        "measurements",
+        "page_detection",
+        "object_candidate_contours",
+        "debug_images",
+    ):
+        value = debug.get(key)
+        if value not in (None, [], {}):
+            print(f"\n{key}:")
+            pprint(value, width=140, sort_dicts=False)
+
+    trace = debug.get("trace") or []
+    diagnostic_trace = [item for item in trace if item.get("event") in DIAGNOSTIC_TRACE_EVENTS]
+    trace_to_print = diagnostic_trace[-30:] if diagnostic_trace else trace[-30:]
+    if trace_to_print:
+        print("\ndiagnostic trace tail:")
+        pprint(trace_to_print, width=140, sort_dicts=False)
+
+
+@contextmanager
+def print_debug_on_failure(label: str, get_debug):
+    try:
+        yield
+    except Exception:
+        print_object_measurer_debug(get_debug(), label=label)
+        raise
+
 
 @pytest.mark.parametrize(
     "slug, scale, image_path, reference_size_mm, tol_cm",
@@ -89,11 +141,12 @@ def test_images_processes(slug, scale, image_path, reference_size_mm, tol_cm, tm
     measurer.slug = slug
     measurements, debug = measurer.measure(img, return_debug=True)
 
-    assert measurements
-    assert debug["status"] == "ok"
-    print(measurements)
-    assert debug["object_contour_svg"] is not None
-    assert debug["trace"]
+    with print_debug_on_failure(slug, lambda: debug):
+        assert measurements
+        assert debug["status"] == "ok"
+        print(measurements)
+        assert debug["object_contour_svg"] is not None
+        assert debug["trace"]
 
 
 def test_mock_box_white_blue_one_detects_large_central_shirt_contour(tmp_path):
@@ -111,21 +164,22 @@ def test_mock_box_white_blue_one_detects_large_central_shirt_contour(tmp_path):
     measurer.slug = slug
     measurements, debug = measurer.measure(img, return_debug=True)
 
-    assert debug["status"] == "ok"
-    assert measurements
+    with print_debug_on_failure(slug, lambda: debug):
+        assert debug["status"] == "ok"
+        assert measurements
 
-    dominant_measurement = max(measurements, key=lambda m: m.bbox[2] * m.bbox[3])
-    warped_h, warped_w = debug["imgWarp"].shape[:2]
-    x, y, w, h = dominant_measurement.bbox
-    center_x = (x + (w / 2)) / warped_w
-    center_y = (y + (h / 2)) / warped_h
-    bbox_area_fraction = (w * h) / (warped_w * warped_h)
+        dominant_measurement = max(measurements, key=lambda m: m.bbox[2] * m.bbox[3])
+        warped_h, warped_w = debug["imgWarp"].shape[:2]
+        x, y, w, h = dominant_measurement.bbox
+        center_x = (x + (w / 2)) / warped_w
+        center_y = (y + (h / 2)) / warped_h
+        bbox_area_fraction = (w * h) / (warped_w * warped_h)
 
-    assert 0.35 <= center_x <= 0.65
-    assert 0.35 <= center_y <= 0.65
-    assert bbox_area_fraction >= 0.75
-    assert dominant_measurement.width_cm == pytest.approx(70.4, abs=STANDARD_TOLERANCE_SHIRT_CM)
-    assert dominant_measurement.height_cm == pytest.approx(64.5, abs=STANDARD_TOLERANCE_SHIRT_CM)
+        assert 0.35 <= center_x <= 0.65
+        assert 0.35 <= center_y <= 0.65
+        assert bbox_area_fraction >= 0.75
+        assert dominant_measurement.width_cm == pytest.approx(70.4, abs=STANDARD_TOLERANCE_SHIRT_CM)
+        assert dominant_measurement.height_cm == pytest.approx(64.5, abs=STANDARD_TOLERANCE_SHIRT_CM)
 
 
 @pytest.mark.parametrize(
@@ -159,36 +213,37 @@ def test_1jpg_two_objects_about_9x5(slug, scale, image_path, reference_size_mm, 
         save_debug_images=save_debug_images_enabled(),
     )
     measurer.slug = slug
-    measurements = measurer.measure(img)
+    measurements, debug = measurer.measure(img, return_debug=True)
 
-    print(f"Expected {expected_count} contours, got {len(measurements)}: ")
-    print(f"{[(m.width_cm, m.height_cm) for m in measurements]}")
+    with print_debug_on_failure(slug, lambda: debug):
+        print(f"Expected {expected_count} contours, got {len(measurements)}: ")
+        print(f"{[(m.width_cm, m.height_cm) for m in measurements]}")
 
-    width_cm, height_cm = measurements[0].width_cm, measurements[0].height_cm
-    print(f"Width: {width_cm}, Height: {height_cm}")
+        width_cm, height_cm = measurements[0].width_cm, measurements[0].height_cm
+        print(f"Width: {width_cm}, Height: {height_cm}")
 
-    # assert len(measurements) == expected_count
+        # assert len(measurements) == expected_count
 
-    # print(measurer.debug)
+        # print(measurer.debug)
 
-    # Order-independent: every measurement should be ~9x5 (allow swapped orientation too).
-    for m in measurements:
-        ok_normal = (
-            m.width_cm == pytest.approx(expected_w_cm, abs=tol_cm)
-            and m.height_cm == pytest.approx(expected_h_cm, abs=tol_cm)
-        )
-        ok_swapped = (
-            m.width_cm == pytest.approx(expected_h_cm, abs=tol_cm)
-            and m.height_cm == pytest.approx(expected_w_cm, abs=tol_cm)
-        )
-        assert ok_normal or ok_swapped, (
-            f"Unexpected measurement (w,h)=({m.width_cm},{m.height_cm}); "
-            f"expected about ({expected_w_cm},{expected_h_cm}) +/- {tol_cm} cm"
-        )
-        break
+        # Order-independent: every measurement should be ~9x5 (allow swapped orientation too).
+        for m in measurements:
+            ok_normal = (
+                m.width_cm == pytest.approx(expected_w_cm, abs=tol_cm)
+                and m.height_cm == pytest.approx(expected_h_cm, abs=tol_cm)
+            )
+            ok_swapped = (
+                m.width_cm == pytest.approx(expected_h_cm, abs=tol_cm)
+                and m.height_cm == pytest.approx(expected_w_cm, abs=tol_cm)
+            )
+            assert ok_normal or ok_swapped, (
+                f"Unexpected measurement (w,h)=({m.width_cm},{m.height_cm}); "
+                f"expected about ({expected_w_cm},{expected_h_cm}) +/- {tol_cm} cm"
+            )
+            break
 
-    print(measurer.debug['object_contour_svg'])
-    assert measurer.debug['object_contour_svg'] is not None
+        print(debug['object_contour_svg'])
+        assert debug['object_contour_svg'] is not None
 
 
 def test_failed_measurement_includes_debug_trace_and_logs(caplog):
@@ -198,11 +253,12 @@ def test_failed_measurement_includes_debug_trace_and_logs(caplog):
     with caplog.at_level(logging.WARNING, logger="ObjectMeasurer.ObjectMeasurement"):
         measurements, debug = measurer.measure(img, return_debug=True)
 
-    assert measurements == []
-    assert debug["status"] == "failed"
-    assert debug["errors"][0]["code"] == "reference_not_found"
-    assert any(item["event"] == "failure" for item in debug["trace"])
-    assert "reference_not_found" in caplog.text
+    with print_debug_on_failure("failed-measurement", lambda: debug):
+        assert measurements == []
+        assert debug["status"] == "failed"
+        assert debug["errors"][0]["code"] == "reference_not_found"
+        assert any(item["event"] == "failure" for item in debug["trace"])
+        assert "reference_not_found" in caplog.text
 
 
 def test_debug_images_can_be_saved_to_requested_folder(tmp_path):
@@ -218,9 +274,10 @@ def test_debug_images_can_be_saved_to_requested_folder(tmp_path):
     measurer.slug = "ucard-one"
     measurements, debug = measurer.measure(img, return_debug=True)
 
-    saved_images = [Path(item["path"]) for item in debug["debug_images"] if item["saved"]]
-    assert measurements
-    assert saved_images
-    assert all(path.parent == tmp_path for path in saved_images)
-    assert any(path.name.endswith("_page_gray.jpg") for path in saved_images)
-    assert any(path.name.endswith("_warped.jpg") for path in saved_images)
+    with print_debug_on_failure("debug-images", lambda: debug):
+        saved_images = [Path(item["path"]) for item in debug["debug_images"] if item["saved"]]
+        assert measurements
+        assert saved_images
+        assert all(path.parent == tmp_path for path in saved_images)
+        assert any(path.name.endswith("_page_gray.jpg") for path in saved_images)
+        assert any(path.name.endswith("_warped.jpg") for path in saved_images)

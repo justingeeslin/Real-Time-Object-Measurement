@@ -225,13 +225,20 @@ class ObjectMeasurer:
         self.debug.setdefault("trace", []).append(record)
         logger.debug("ObjectMeasurer trace: %s", record)
 
-    def _record_failure(self, code: str, message: str, **fields: Any) -> None:
+    def _record_failure(self, code: str, message: str, *, exc_info: bool = False, **fields: Any) -> None:
         error = {"code": code, "message": message}
         error.update({key: self._debug_value(value) for key, value in fields.items()})
         self.debug["status"] = "failed"
         self.debug.setdefault("errors", []).append(error)
         self._trace("failure", code=code, message=message, **fields)
-        logger.warning("ObjectMeasurer failed: %s (%s)", message, code)
+        logger.warning("ObjectMeasurer failed: %s (%s)", message, code, exc_info=exc_info)
+
+    def _record_warning(self, code: str, message: str, *, exc_info: bool = False, **fields: Any) -> None:
+        warning = {"code": code, "message": message}
+        warning.update({key: self._debug_value(value) for key, value in fields.items()})
+        self.debug.setdefault("warnings", []).append(warning)
+        self._trace("warning", code=code, message=message, **fields)
+        logger.warning("ObjectMeasurer warning: %s (%s)", message, code, exc_info=exc_info)
 
     @staticmethod
     def _debug_value(value: Any) -> Any:
@@ -246,6 +253,135 @@ class ObjectMeasurer:
         if isinstance(value, dict):
             return {str(k): ObjectMeasurer._debug_value(v) for k, v in value.items()}
         return value
+
+    @staticmethod
+    def _image_stats(image: Any) -> Dict[str, Any]:
+        if image is None:
+            return {"is_none": True}
+        try:
+            arr = np.asarray(image)
+            stats: Dict[str, Any] = {
+                "shape": tuple(int(v) for v in arr.shape),
+                "dtype": str(arr.dtype),
+                "size": int(arr.size),
+            }
+            if arr.size:
+                nonzero = int(np.count_nonzero(arr))
+                stats.update(
+                    {
+                        "min": ObjectMeasurer._debug_value(np.min(arr)),
+                        "max": ObjectMeasurer._debug_value(np.max(arr)),
+                        "nonzero": nonzero,
+                        "nonzero_fraction": float(nonzero / arr.size),
+                    }
+                )
+            return stats
+        except Exception as exc:
+            return {"type": type(image).__name__, "stats_error": str(exc)}
+
+    def _contour_debug_details(self, contour: Any) -> Dict[str, Any]:
+        details: Dict[str, Any] = {"type": type(contour).__name__}
+        try:
+            arr = np.asarray(contour)
+            details.update(
+                {
+                    "shape": tuple(int(v) for v in arr.shape),
+                    "dtype": str(arr.dtype),
+                    "size": int(arr.size),
+                }
+            )
+        except Exception as exc:
+            details["array_error"] = str(exc)
+            return details
+
+        try:
+            details["point_count"] = int(len(contour))
+        except Exception as exc:
+            details["point_count_error"] = str(exc)
+
+        if details.get("size", 0):
+            try:
+                details["area"] = float(cv2.contourArea(contour))
+            except Exception as exc:
+                details["area_error"] = str(exc)
+            try:
+                details["bbox"] = tuple(int(v) for v in cv2.boundingRect(contour))
+            except Exception as exc:
+                details["bbox_error"] = str(exc)
+
+        return details
+
+    def _object_debug_details(self, obj: Any) -> Dict[str, Any]:
+        details: Dict[str, Any] = {"type": type(obj).__name__}
+        try:
+            details["length"] = int(len(obj))
+        except Exception as exc:
+            details["length_error"] = str(exc)
+            return details
+
+        try:
+            if len(obj) > 0:
+                details["corners"] = int(obj[0])
+            if len(obj) > 1:
+                details["area"] = float(obj[1])
+            if len(obj) > 2:
+                details["approx"] = self._contour_debug_details(obj[2])
+            if len(obj) > 3:
+                details["bbox"] = tuple(int(v) for v in obj[3])
+            if len(obj) > 4:
+                details["raw_contour"] = self._contour_debug_details(obj[4])
+        except Exception as exc:
+            details["object_detail_error"] = str(exc)
+        return details
+
+    def _min_area_rect(
+        self,
+        contour: Any,
+        *,
+        stage: str,
+        index: Optional[int] = None,
+        failure_code: Optional[str] = None,
+        failure_message: str = "OpenCV minAreaRect failed for contour",
+    ) -> Optional[Any]:
+        contour_details = self._contour_debug_details(contour)
+        try:
+            rect = cv2.minAreaRect(contour)
+        except Exception as exc:
+            fields = {
+                "stage": stage,
+                "index": index,
+                "exception_type": type(exc).__name__,
+                "error": str(exc),
+                "contour": contour_details,
+            }
+            if failure_code is not None:
+                self._record_failure(failure_code, failure_message, exc_info=True, **fields)
+            else:
+                self._record_warning("min_area_rect_failed", failure_message, exc_info=True, **fields)
+            return None
+
+        (_, _), (rect_w, rect_h), angle = rect
+        self._trace(
+            "min_area_rect_complete",
+            stage=stage,
+            index=index,
+            width_px=float(rect_w),
+            height_px=float(rect_h),
+            angle=float(angle),
+            contour=contour_details,
+        )
+        if rect_w <= 0 or rect_h <= 0:
+            self._record_warning(
+                "min_area_rect_degenerate",
+                "OpenCV minAreaRect returned a zero-sized rectangle",
+                stage=stage,
+                index=index,
+                width_px=float(rect_w),
+                height_px=float(rect_h),
+                angle=float(angle),
+                contour=contour_details,
+            )
+        return rect
 
     @staticmethod
     def _odd_kernel_size(value: int) -> int:
@@ -298,6 +434,7 @@ class ObjectMeasurer:
             {
                 "status": "started",
                 "errors": [],
+                "warnings": [],
                 "object_contour_svg": None,
                 "measurements": [],
                 "reference_candidate_sets": [],
@@ -349,9 +486,32 @@ class ObjectMeasurer:
         )
 
         # --- debug: draw minAreaRect in blue ---
-        rect = cv2.minAreaRect(biggest)
-        box = cv2.boxPoints(rect)  # 4x2 float array
-        box = box.astype(np.int32)
+        rect = self._min_area_rect(
+            biggest,
+            stage="reference",
+            failure_code="reference_min_area_rect_failed",
+            failure_message="Could not calculate the reference surface minAreaRect",
+        )
+        if rect is None:
+            self.slug = originalSlug
+            measurements: List[ContourMeasurement] = []
+            return (measurements, self.debug) if return_debug else measurements
+
+        try:
+            box = cv2.boxPoints(rect)  # 4x2 float array
+            box = box.astype(np.int32)
+        except Exception as exc:
+            self.slug = originalSlug
+            self._record_failure(
+                "reference_box_points_failed",
+                "Could not convert the reference minAreaRect to box points",
+                exc_info=True,
+                exception_type=type(exc).__name__,
+                error=str(exc),
+                rect=rect,
+            )
+            measurements = []
+            return (measurements, self.debug) if return_debug else measurements
 
         img_with_rect = img.copy()
         cv2.drawContours(img_with_rect, [box], 0, (0, 255, 0), 3)
@@ -363,7 +523,7 @@ class ObjectMeasurer:
         self.debug["img_with_paper_contour"] = img_with_paper_contour
         self._saveDebugImage(img_with_paper_contour, "paper_contour")
 
-        (_, _), (paper_w, paper_h), paper_angle = cv2.minAreaRect(biggest)
+        (_, _), (paper_w, paper_h), paper_angle = rect
 
         # iron out OpenCV's tricky width and height intepretation
         if paper_angle < 45:
@@ -426,7 +586,20 @@ class ObjectMeasurer:
 
         converter = OpenCVContourSVGConverter()
         for idx, obj in enumerate(conts2):
-            cnt = obj[4]  # raw contour
+            try:
+                cnt = obj[4]  # raw contour
+                x, y, bw, bh = obj[3]
+            except Exception as exc:
+                self._record_warning(
+                    "object_contour_debug_invalid_candidate",
+                    "Object candidate could not be inspected for contour debug drawing",
+                    exc_info=True,
+                    index=idx,
+                    exception_type=type(exc).__name__,
+                    error=str(exc),
+                    object=self._object_debug_details(obj),
+                )
+                continue
 
             try:
                 if self.debug["object_contour_svg"] is None:
@@ -434,18 +607,29 @@ class ObjectMeasurer:
             except Exception as exc:
                 self._trace("object_svg_conversion_failed", index=idx, error=str(exc))
 
-            cv2.drawContours(img_with_object_contours, [cnt], -1, (0, 0, 255), 2)
-            x, y, bw, bh = obj[3]
-            cv2.rectangle(img_with_object_contours, (x, y), (x + bw, y + bh), (255, 0, 0), 2)
-            cv2.putText(
-                img_with_object_contours,
-                str(idx),
-                (x + 5, y + 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (255, 255, 255),
-                2,
-            )
+            try:
+                cv2.drawContours(img_with_object_contours, [cnt], -1, (0, 0, 255), 2)
+                cv2.rectangle(img_with_object_contours, (x, y), (x + bw, y + bh), (255, 0, 0), 2)
+                cv2.putText(
+                    img_with_object_contours,
+                    str(idx),
+                    (x + 5, y + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (255, 255, 255),
+                    2,
+                )
+            except Exception as exc:
+                self._record_warning(
+                    "object_contour_debug_draw_failed",
+                    "Object contour debug drawing failed",
+                    exc_info=True,
+                    index=idx,
+                    exception_type=type(exc).__name__,
+                    error=str(exc),
+                    object=self._object_debug_details(obj),
+                )
+                continue
 
             # Print the axis-aligned bbox dimensions (blue rectangle) in cm
             bbox_w_cm = float(bw) / self.pixels_to_mm_divisor
@@ -463,11 +647,51 @@ class ObjectMeasurer:
         # --- debug: draw minAreaRect boxes for each object (useful for polygons) ---
         img_with_object_boxes = imgWarp.copy()
         for idx, obj in enumerate(conts2):
-            cnt = obj[4]
-            rect = cv2.minAreaRect(cnt)
-            box = cv2.boxPoints(rect)
-            box = box.astype(np.int32)
-            cv2.drawContours(img_with_object_boxes, [box], 0, (0, 255, 0), 2)
+            try:
+                cnt = obj[4]
+            except Exception as exc:
+                self._record_warning(
+                    "object_min_area_rect_missing_contour",
+                    "Object candidate did not contain a raw contour for minAreaRect debug drawing",
+                    exc_info=True,
+                    index=idx,
+                    exception_type=type(exc).__name__,
+                    error=str(exc),
+                    object=self._object_debug_details(obj),
+                )
+                continue
+            rect = self._min_area_rect(cnt, stage="object_debug_boxes", index=idx)
+            if rect is None:
+                continue
+            try:
+                box = cv2.boxPoints(rect)
+                box = box.astype(np.int32)
+            except Exception as exc:
+                self._record_warning(
+                    "object_box_points_failed",
+                    "Could not convert an object minAreaRect to box points",
+                    exc_info=True,
+                    index=idx,
+                    exception_type=type(exc).__name__,
+                    error=str(exc),
+                    rect=rect,
+                    object=self._object_debug_details(obj),
+                )
+                continue
+            try:
+                cv2.drawContours(img_with_object_boxes, [box], 0, (0, 255, 0), 2)
+            except Exception as exc:
+                self._record_warning(
+                    "object_min_area_rect_draw_failed",
+                    "Object minAreaRect debug drawing failed",
+                    exc_info=True,
+                    index=idx,
+                    exception_type=type(exc).__name__,
+                    error=str(exc),
+                    box=box,
+                    object=self._object_debug_details(obj),
+                )
+                continue
 
             # if return_debug:
             (_, _), (w_box, h_box), _ = rect
@@ -511,23 +735,63 @@ class ObjectMeasurer:
     def _measure_objects(self, conts2: Sequence[Any]) -> List[ContourMeasurement]:
         out: List[ContourMeasurement] = []
 
-        for obj in conts2:
-            pts = obj[2]  # approx polygon
+        for idx, obj in enumerate(conts2):
+            try:
+                pts = obj[2]  # approx polygon
+                point_count = len(pts)
+            except Exception as exc:
+                self._record_warning(
+                    "object_measurement_invalid_candidate",
+                    "Object candidate could not be inspected before measurement",
+                    exc_info=True,
+                    index=idx,
+                    exception_type=type(exc).__name__,
+                    error=str(exc),
+                    object=self._object_debug_details(obj),
+                )
+                continue
 
             # If it's a clean 4-corner polygon, keep the legacy corner-to-corner measurement.
             # Otherwise (polygons, noisy contours), use the rotated minimum-area bounding box.
-            if len(pts) == 4:
+            if point_count == 4:
                 method = "corners"
-                nPoints = ObjectMeasurer.reorder(pts)
+                try:
+                    nPoints = ObjectMeasurer.reorder(pts)
 
-                # Legacy behavior: divide points by scale before findDis, then divide by 10 and label as cm.
-                w_px = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[1][0] // self.scale)
-                h_px = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[2][0] // self.scale)
+                    # Legacy behavior: divide points by scale before findDis, then divide by 10 and label as cm.
+                    w_px = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[1][0] // self.scale)
+                    h_px = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[2][0] // self.scale)
+                except Exception as exc:
+                    self._record_warning(
+                        "object_corner_measurement_failed",
+                        "Object corner-based measurement failed",
+                        exc_info=True,
+                        index=idx,
+                        exception_type=type(exc).__name__,
+                        error=str(exc),
+                        object=self._object_debug_details(obj),
+                    )
+                    continue
             else:
                 method = "minAreaRect"
                 # Use raw contour for a tighter fit than the simplified approx polygon.
-                cnt = obj[4]
-                (_, _), (w_box, h_box), _ = cv2.minAreaRect(cnt)
+                try:
+                    cnt = obj[4]
+                except Exception as exc:
+                    self._record_warning(
+                        "object_min_area_rect_missing_contour",
+                        "Object candidate did not contain a raw contour for minAreaRect measurement",
+                        exc_info=True,
+                        index=idx,
+                        exception_type=type(exc).__name__,
+                        error=str(exc),
+                        object=self._object_debug_details(obj),
+                    )
+                    continue
+                rect = self._min_area_rect(cnt, stage="object_measurement", index=idx)
+                if rect is None:
+                    continue
+                (_, _), (w_box, h_box), _ = rect
                 # minAreaRect returns widths/heights in pixels of the warped image.
                 w_px, h_px = float(w_box // self.scale), float(h_box // self.scale)
 
@@ -541,14 +805,16 @@ class ObjectMeasurer:
             if min(width_cm, height_cm) < self.object_min_dimension_cm:
                 self._trace(
                     "object_measurement_skipped",
+                    index=idx,
                     reason="below_min_dimension",
+                    method=method,
                     width_cm=width_cm,
                     height_cm=height_cm,
                     min_dimension_cm=self.object_min_dimension_cm,
                 )
                 continue
 
-            self._trace("object_measured", method=method, width_cm=width_cm, height_cm=height_cm)
+            self._trace("object_measured", index=idx, method=method, width_cm=width_cm, height_cm=height_cm)
 
             x, y, bw, bh = obj[3]
             out.append(
@@ -597,22 +863,74 @@ class ObjectMeasurer:
         kernel = np.ones((kernel_size, kernel_size), np.uint8)
         imgDial = cv2.dilate(imgCanny, kernel, iterations=3)
         self._saveDebugImage(imgDial, "dilate")
-        imgThre = cv2.erode(imgDial, kernel, iterations=2)
+        try:
+            imgThre = cv2.erode(imgDial, kernel, iterations=2)
+        except Exception as exc:
+            self._record_failure(
+                "contour_erode_failed",
+                "OpenCV erode failed during contour preprocessing",
+                exc_info=True,
+                stage=stage,
+                exception_type=type(exc).__name__,
+                error=str(exc),
+                dilated_image=self._image_stats(imgDial),
+                kernel_shape=tuple(int(v) for v in kernel.shape),
+            )
+            raise
         self._saveDebugImage(imgThre, "_erode")
+        eroded_stats = self._image_stats(imgThre)
+        self._trace("contour_erode_complete", stage=stage, eroded_image=eroded_stats)
 
-        contours, hiearchy = cv2.findContours(imgThre, retrieval_mode, cv2.CHAIN_APPROX_SIMPLE)
+        self._trace(
+            "contour_find_start",
+            stage=stage,
+            retrieval_mode=int(retrieval_mode),
+            eroded_image=eroded_stats,
+        )
+        try:
+            contours, hiearchy = cv2.findContours(imgThre, retrieval_mode, cv2.CHAIN_APPROX_SIMPLE)
+        except Exception as exc:
+            self._record_failure(
+                "find_contours_failed",
+                "OpenCV findContours failed after erosion",
+                exc_info=True,
+                stage=stage,
+                exception_type=type(exc).__name__,
+                error=str(exc),
+                retrieval_mode=int(retrieval_mode),
+                eroded_image=eroded_stats,
+            )
+            raise
+        self._trace(
+            "contour_find_complete",
+            stage=stage,
+            contour_count=len(contours),
+            hierarchy=None if hiearchy is None else self._image_stats(hiearchy),
+        )
         finalCountours: List[Any] = []
-        for i in contours:
-            area = cv2.contourArea(i)
-            if area > minArea:
-                peri = cv2.arcLength(i, True)
-                approx = cv2.approxPolyDP(i, approx_epsilon * peri, True)
-                bbox = cv2.boundingRect(approx)
-                if filter > 0:
-                    if len(approx) == filter:
+        for contour_index, i in enumerate(contours):
+            try:
+                area = cv2.contourArea(i)
+                if area > minArea:
+                    peri = cv2.arcLength(i, True)
+                    approx = cv2.approxPolyDP(i, approx_epsilon * peri, True)
+                    bbox = cv2.boundingRect(approx)
+                    if filter > 0:
+                        if len(approx) == filter:
+                            finalCountours.append([len(approx), area, approx, bbox, i])
+                    else:
                         finalCountours.append([len(approx), area, approx, bbox, i])
-                else:
-                    finalCountours.append([len(approx), area, approx, bbox, i])
+            except Exception as exc:
+                self._record_warning(
+                    "contour_candidate_processing_failed",
+                    "Candidate contour could not be processed after findContours",
+                    exc_info=True,
+                    stage=stage,
+                    index=contour_index,
+                    exception_type=type(exc).__name__,
+                    error=str(exc),
+                    contour=self._contour_debug_details(i),
+                )
 
         finalCountours = sorted(finalCountours, key=lambda x: x[1], reverse=True)
         if draw:
@@ -624,6 +942,7 @@ class ObjectMeasurer:
             contour_count=len(contours),
             accepted_count=len(finalCountours),
             top_candidates=self._contour_summaries(finalCountours[:5]),
+            eroded_image=eroded_stats,
         )
         return img, finalCountours
 
@@ -643,30 +962,41 @@ class ObjectMeasurer:
         primary_candidate: Optional[ReferenceContourCandidate] = None
         if conts:
             contour = conts[0]
-            primary_candidate = self._make_reference_candidate(
-                points=contour[2],
-                raw_contour=contour[4],
-                method="canny_external_4_point",
-                metadata={"corner_count": contour[0]},
-                img_shape=img.shape,
-            )
+            try:
+                primary_candidate = self._make_reference_candidate(
+                    points=contour[2],
+                    raw_contour=contour[4],
+                    method="canny_external_4_point",
+                    metadata={"corner_count": contour[0]},
+                    img_shape=img.shape,
+                )
+            except Exception as exc:
+                self._record_warning(
+                    "reference_primary_candidate_failed",
+                    "Primary reference contour could not be scored",
+                    exc_info=True,
+                    exception_type=type(exc).__name__,
+                    error=str(exc),
+                    contour=self._object_debug_details(contour),
+                )
             self._trace(
                 "reference_primary_best",
-                method=primary_candidate.method,
-                score=primary_candidate.score,
-                area=primary_candidate.area,
-                bbox=primary_candidate.bbox,
+                method=None if primary_candidate is None else primary_candidate.method,
+                score=None if primary_candidate is None else primary_candidate.score,
+                area=None if primary_candidate is None else primary_candidate.area,
+                bbox=None if primary_candidate is None else primary_candidate.bbox,
             )
-            if primary_candidate.score <= 0.35:
+            if primary_candidate is not None and primary_candidate.score <= 0.35:
                 return primary_candidate
 
-            self._trace(
-                "reference_primary_suspicious",
-                method=primary_candidate.method,
-                score=primary_candidate.score,
-                area=primary_candidate.area,
-                bbox=primary_candidate.bbox,
-            )
+            if primary_candidate is not None:
+                self._trace(
+                    "reference_primary_suspicious",
+                    method=primary_candidate.method,
+                    score=primary_candidate.score,
+                    area=primary_candidate.area,
+                    bbox=primary_candidate.bbox,
+                )
         else:
             self._trace("reference_primary_empty")
 
@@ -919,25 +1249,37 @@ class ObjectMeasurer:
         epsilon_values: Sequence[float] = (0.01, 0.02, 0.03, 0.05, 0.08),
     ) -> List[ReferenceContourCandidate]:
         candidates: List[ReferenceContourCandidate] = []
-        for contour in contours:
-            area = float(cv2.contourArea(contour))
-            if area < min_area:
-                continue
-            peri = cv2.arcLength(contour, True)
-            if peri <= 0:
-                continue
-            for epsilon in epsilon_values:
-                approx = cv2.approxPolyDP(contour, epsilon * peri, True)
-                if len(approx) == 4 and cv2.isContourConvex(approx):
-                    candidate = self._make_reference_candidate(
-                        points=approx,
-                        raw_contour=contour,
-                        method=method,
-                        metadata={"approx_epsilon": float(epsilon), "corner_count": int(len(approx))},
-                        img_shape=img_shape,
-                    )
-                    candidates.append(candidate)
-                    break
+        for contour_index, contour in enumerate(contours):
+            try:
+                area = float(cv2.contourArea(contour))
+                if area < min_area:
+                    continue
+                peri = cv2.arcLength(contour, True)
+                if peri <= 0:
+                    continue
+                for epsilon in epsilon_values:
+                    approx = cv2.approxPolyDP(contour, epsilon * peri, True)
+                    if len(approx) == 4 and cv2.isContourConvex(approx):
+                        candidate = self._make_reference_candidate(
+                            points=approx,
+                            raw_contour=contour,
+                            method=method,
+                            metadata={"approx_epsilon": float(epsilon), "corner_count": int(len(approx))},
+                            img_shape=img_shape,
+                        )
+                        candidates.append(candidate)
+                        break
+            except Exception as exc:
+                self._record_warning(
+                    "reference_candidate_processing_failed",
+                    "Reference candidate contour could not be processed",
+                    exc_info=True,
+                    method=method,
+                    index=contour_index,
+                    exception_type=type(exc).__name__,
+                    error=str(exc),
+                    contour=self._contour_debug_details(contour),
+                )
         return sorted(candidates, key=lambda item: item.score)
 
     def _make_reference_candidate(
@@ -1002,14 +1344,29 @@ class ObjectMeasurer:
         ]
 
     def _contour_summaries(self, contours: Sequence[Any]) -> List[Dict[str, Any]]:
-        return [
-            {
-                "corners": int(c[0]),
-                "area": round(float(c[1]), 2),
-                "bbox": tuple(int(v) for v in c[3]),
-            }
-            for c in contours
-        ]
+        summaries: List[Dict[str, Any]] = []
+        for idx, c in enumerate(contours):
+            try:
+                summary: Dict[str, Any] = {
+                    "index": idx,
+                    "corners": int(c[0]),
+                    "area": round(float(c[1]), 2),
+                    "bbox": tuple(int(v) for v in c[3]),
+                }
+                if len(c) > 2:
+                    summary["approx"] = self._contour_debug_details(c[2])
+                if len(c) > 4:
+                    summary["raw_contour"] = self._contour_debug_details(c[4])
+                summaries.append(summary)
+            except Exception as exc:
+                summaries.append(
+                    {
+                        "index": idx,
+                        "summary_error": str(exc),
+                        "object": self._debug_value(c),
+                    }
+                )
+        return summaries
 
 
 def _draw_measurements(imgWarp: np.ndarray, measurements: Sequence[ContourMeasurement]) -> np.ndarray:
