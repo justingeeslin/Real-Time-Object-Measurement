@@ -58,7 +58,11 @@ def debug_path(tmp_path: Path, slug: str, image_path: Path) -> str:
         # ("nike-envelope", 1, fixture_path("nike-envelope", "img_6a7b6ba3eb1276.03284004.jpg"), ENVELOPE_MM, STANDARD_TOLERANCE_SHIRT_CM),
 
         ("mock-box-white-blue-one", 1, fixture_path("mock-box-white-blue-one", "IMG_0315.jpeg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
+        ("mock-box-white-blue-one-off-axis", 1, fixture_path("mock-box-white-blue-goldy-one-off-axis", "img_6a84aaa9bd5684.29594166.jpg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
         ("mock-box-white-blue-goldy-one", 1, fixture_path("mock-box-white-blue-goldy-one", "IMG_0317.jpeg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
+        ("mock-box-white-blue-goldy-two", 1, fixture_path("mock-box-white-blue-goldy-two", "img_6a84a94c724176.66225541.jpg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
+        ("mock-box-white-blue-goldy-three", 1, fixture_path("mock-box-white-blue-goldy-three", "img_6a84a977ae3347.44496591.jpg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
+        ("mock-box-white-blue-goldy-four", 1, fixture_path("mock-box-white-blue-goldy-four", "img_6a84a8e7b20297.13560456.jpg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
 
         # Broader source-photo smoke coverage
         ("one", 1, fixture_path("one", "one.jpg"), A4_MM, STANDARD_TOLERANCE_CM),
