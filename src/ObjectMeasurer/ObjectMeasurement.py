@@ -826,9 +826,6 @@ class ObjectMeasurer:
                 min_area=max(self.page_min_area, int(img.shape[0] * img.shape[1] * 0.015)),
             )
             candidates.extend(strategy_candidates)
-            safe_name = self._safe_debug_name(name)
-            self.debug[f"img_reference_candidate_mask_{safe_name}"] = cleaned
-            self._saveDebugImage(cleaned, f"reference_candidate_mask_{safe_name}")
             self._record_reference_candidate_debug_image(img, strategy_candidates, name)
             self._trace(
                 "reference_color_candidates",
@@ -901,9 +898,6 @@ class ObjectMeasurer:
             min_area=self.page_min_area,
             epsilon_values=(0.01, 0.015, 0.02, 0.03, 0.05, 0.08),
         )
-        safe_method = self._safe_debug_name(method)
-        self.debug[f"img_reference_candidate_threshold_{safe_method}"] = threshold
-        self._saveDebugImage(threshold, f"reference_candidate_threshold_{safe_method}")
         self._record_reference_candidate_debug_image(img, candidates, method)
         self._trace(
             "reference_relaxed_edge_candidates",
