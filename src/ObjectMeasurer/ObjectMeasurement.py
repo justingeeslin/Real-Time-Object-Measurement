@@ -116,6 +116,107 @@ class ObjectMeasurer:
             self._trace("debug_image_save_error", name=str(name), path=str(out_path), error=str(exc))
         self.debugImageCounter += 1
 
+    @staticmethod
+    def _safe_debug_name(name: str) -> str:
+        safe = "".join(ch if ch.isalnum() else "_" for ch in str(name)).strip("_")
+        return safe or "debug"
+
+    @staticmethod
+    def _debug_canvas(img: np.ndarray) -> np.ndarray:
+        if img.ndim == 2:
+            return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        if img.ndim == 3 and img.shape[2] == 4:
+            return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        return img.copy()
+
+    @staticmethod
+    def _draw_debug_label(img: np.ndarray, text: str, origin: Tuple[int, int]) -> None:
+        x = max(0, int(origin[0]))
+        y = max(18, int(origin[1]))
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        scale = 0.55
+        thickness = 2
+        (text_w, text_h), baseline = cv2.getTextSize(text, font, scale, thickness)
+        cv2.rectangle(
+            img,
+            (x, max(0, y - text_h - baseline - 6)),
+            (x + text_w + 8, y + baseline + 4),
+            (0, 0, 0),
+            -1,
+        )
+        cv2.putText(img, text, (x + 4, y), font, scale, (255, 255, 255), thickness)
+
+    def _record_reference_candidate_debug_image(
+        self,
+        img: np.ndarray,
+        candidates: Sequence[ReferenceContourCandidate],
+        name: str,
+        *,
+        max_items: int = 20,
+    ) -> None:
+        safe_name = self._safe_debug_name(name)
+        self.debug.setdefault("reference_candidate_sets", []).append(
+            {"name": safe_name, "candidates": self._candidate_summaries(candidates)}
+        )
+        self.debug.setdefault("reference_candidates", {})[safe_name] = list(candidates)
+
+        out = self._debug_canvas(img)
+        palette = [(0, 255, 0), (0, 165, 255), (255, 0, 0), (255, 0, 255), (255, 255, 0)]
+        for idx, candidate in enumerate(candidates[:max_items]):
+            color = palette[idx % len(palette)]
+            cv2.drawContours(out, [candidate.raw_contour], -1, color, 2)
+            cv2.drawContours(out, [candidate.points], -1, (255, 255, 255), 1)
+            x, y, w, h = candidate.bbox
+            cv2.rectangle(out, (x, y), (x + w, y + h), color, 2)
+            self._draw_debug_label(
+                out,
+                f"{idx} score={candidate.score:.2f} area={candidate.area:.0f}",
+                (x + 3, y + 21),
+            )
+
+        if not candidates:
+            self._draw_debug_label(out, "no reference candidates", (12, 24))
+
+        debug_key = f"img_reference_candidates_{safe_name}"
+        self.debug[debug_key] = out
+        self._saveDebugImage(out, f"reference_candidates_{safe_name}")
+
+    def _record_contour_candidate_debug_image(
+        self,
+        img: np.ndarray,
+        contours: Sequence[Any],
+        name: str,
+        *,
+        max_items: int = 20,
+    ) -> None:
+        safe_name = self._safe_debug_name(name)
+        summaries = self._contour_summaries(contours)
+        self.debug.setdefault("contour_candidate_sets", []).append(
+            {"name": safe_name, "candidates": summaries}
+        )
+
+        out = self._debug_canvas(img)
+        palette = [(0, 255, 0), (0, 165, 255), (255, 0, 0), (255, 0, 255), (255, 255, 0)]
+        for idx, contour in enumerate(contours[:max_items]):
+            color = palette[idx % len(palette)]
+            corners, area, approx, bbox, raw_contour = contour
+            cv2.drawContours(out, [raw_contour], -1, color, 2)
+            cv2.drawContours(out, [approx], -1, (255, 255, 255), 1)
+            x, y, w, h = bbox
+            cv2.rectangle(out, (x, y), (x + w, y + h), color, 2)
+            self._draw_debug_label(
+                out,
+                f"{idx} c={int(corners)} area={float(area):.0f}",
+                (x + 3, y + 21),
+            )
+
+        if not contours:
+            self._draw_debug_label(out, "no contour candidates", (12, 24))
+
+        debug_key = f"img_contour_candidates_{safe_name}"
+        self.debug[debug_key] = out
+        self._saveDebugImage(out, f"contour_candidates_{safe_name}")
+
     def _trace(self, event: str, **fields: Any) -> None:
         if not hasattr(self, "debug"):
             return
@@ -199,6 +300,8 @@ class ObjectMeasurer:
                 "errors": [],
                 "object_contour_svg": None,
                 "measurements": [],
+                "reference_candidate_sets": [],
+                "contour_candidate_sets": [],
             }
         )
         self._trace(
@@ -315,6 +418,9 @@ class ObjectMeasurer:
         )
         self.debug["imgContours_objects"] = imgContours2
         self.debug["object_contours"] = conts2
+        self.debug["object_candidate_contours"] = self._contour_summaries(conts2)
+        self._record_contour_candidate_debug_image(imgWarp, conts2, "objects")
+        self.debug["img_object_candidates"] = self.debug["img_contour_candidates_objects"]
         # --- debug: draw all detected object contours on the warped image ---
         img_with_object_contours = imgWarp.copy()
 
@@ -531,6 +637,8 @@ class ObjectMeasurer:
         )
         self.debug["imgContours_page"] = imgContours
         self.debug["page_contours"] = conts
+        self._record_contour_candidate_debug_image(img, conts, "page_primary")
+        self.debug["img_reference_candidates_page_primary"] = self.debug["img_contour_candidates_page_primary"]
 
         primary_candidate: Optional[ReferenceContourCandidate] = None
         if conts:
@@ -718,6 +826,10 @@ class ObjectMeasurer:
                 min_area=max(self.page_min_area, int(img.shape[0] * img.shape[1] * 0.015)),
             )
             candidates.extend(strategy_candidates)
+            safe_name = self._safe_debug_name(name)
+            self.debug[f"img_reference_candidate_mask_{safe_name}"] = cleaned
+            self._saveDebugImage(cleaned, f"reference_candidate_mask_{safe_name}")
+            self._record_reference_candidate_debug_image(img, strategy_candidates, name)
             self._trace(
                 "reference_color_candidates",
                 family=color_family,
@@ -789,6 +901,10 @@ class ObjectMeasurer:
             min_area=self.page_min_area,
             epsilon_values=(0.01, 0.015, 0.02, 0.03, 0.05, 0.08),
         )
+        safe_method = self._safe_debug_name(method)
+        self.debug[f"img_reference_candidate_threshold_{safe_method}"] = threshold
+        self._saveDebugImage(threshold, f"reference_candidate_threshold_{safe_method}")
+        self._record_reference_candidate_debug_image(img, candidates, method)
         self._trace(
             "reference_relaxed_edge_candidates",
             method=method,
