@@ -1002,15 +1002,21 @@ class ObjectMeasurer:
 
         saturated = self._reference_candidates_from_color(img, color_family="saturated")
         if saturated:
-            best = saturated[0]
+            best = self._best_eligible_reference_candidate(
+                saturated,
+                max_score=0.28,
+                min_area_fraction=0.08,
+            )
+            trace_candidate = best or saturated[0]
             self._trace(
                 "reference_color_saturated_best",
-                method=best.method,
-                score=best.score,
-                area=best.area,
-                bbox=best.bbox,
+                method=trace_candidate.method,
+                score=trace_candidate.score,
+                area=trace_candidate.area,
+                bbox=trace_candidate.bbox,
+                selected=best is not None,
             )
-            if best.score <= 0.28 and best.metadata.get("area_fraction", 0.0) >= 0.08:
+            if best is not None:
                 if self._should_replace_primary_reference(best, primary_candidate):
                     self._trace(
                         "reference_primary_replaced",
@@ -1023,15 +1029,21 @@ class ObjectMeasurer:
 
         bright = self._reference_candidates_from_color(img, color_family="bright")
         if bright:
-            best = bright[0]
+            best = self._best_eligible_reference_candidate(
+                bright,
+                max_score=0.32,
+                min_area_fraction=0.08,
+            )
+            trace_candidate = best or bright[0]
             self._trace(
                 "reference_color_bright_best",
-                method=best.method,
-                score=best.score,
-                area=best.area,
-                bbox=best.bbox,
+                method=trace_candidate.method,
+                score=trace_candidate.score,
+                area=trace_candidate.area,
+                bbox=trace_candidate.bbox,
+                selected=best is not None,
             )
-            if best.score <= 0.32 and best.metadata.get("area_fraction", 0.0) >= 0.08:
+            if best is not None:
                 if self._should_replace_primary_reference(best, primary_candidate):
                     self._trace(
                         "reference_primary_replaced",
@@ -1044,15 +1056,21 @@ class ObjectMeasurer:
 
         relaxed = self._reference_candidates_from_relaxed_edges(img)
         if relaxed:
-            best = relaxed[0]
+            best = self._best_eligible_reference_candidate(
+                relaxed,
+                max_score=0.35,
+                min_area_fraction=0.08,
+            )
+            trace_candidate = best or relaxed[0]
             self._trace(
                 "reference_relaxed_edges_best",
-                method=best.method,
-                score=best.score,
-                area=best.area,
-                bbox=best.bbox,
+                method=trace_candidate.method,
+                score=trace_candidate.score,
+                area=trace_candidate.area,
+                bbox=trace_candidate.bbox,
+                selected=best is not None,
             )
-            if best.score <= 0.35 and best.metadata.get("area_fraction", 0.0) >= 0.08:
+            if best is not None:
                 if self._should_replace_primary_reference(best, primary_candidate):
                     self._trace(
                         "reference_primary_replaced",
@@ -1071,7 +1089,7 @@ class ObjectMeasurer:
         large_interior_candidates = [
             item
             for item in low_threshold_relaxed
-            if item.metadata.get("area_fraction", 0.0) >= 0.40
+            if item.metadata.get("area_fraction", 0.0) >= 0.35
             and not item.metadata.get("touches_edge", False)
         ]
         if large_interior_candidates:
@@ -1083,7 +1101,7 @@ class ObjectMeasurer:
                 area=best.area,
                 bbox=best.bbox,
             )
-            if best.score <= 0.50:
+            if best.score <= 0.75:
                 if self._should_replace_primary_reference(best, primary_candidate):
                     self._trace(
                         "reference_primary_replaced",
@@ -1103,6 +1121,21 @@ class ObjectMeasurer:
             )
             return primary_candidate
 
+        return None
+
+    @staticmethod
+    def _best_eligible_reference_candidate(
+        candidates: Sequence[ReferenceContourCandidate],
+        *,
+        max_score: float,
+        min_area_fraction: float,
+    ) -> Optional[ReferenceContourCandidate]:
+        for candidate in candidates:
+            if (
+                candidate.score <= max_score
+                and candidate.metadata.get("area_fraction", 0.0) >= min_area_fraction
+            ):
+                return candidate
         return None
 
     def _should_replace_primary_reference(
