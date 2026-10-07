@@ -16,16 +16,17 @@ PORTRAIT_POSTER_BOARD_MM = (561.975, 711.2)
 ODDBALL_BLACK_POSTER_BOARD_MM = (508, 752.475)
 DOUBLE_STACKED_LANDSCAPE_POSTER_BOARD_MM = (711.2, 1123.95)
 MOCK_BOX_MM = (762, 755.65)
+SQ_CANVAS_MM = (762, 762)
 LIGHTBOX_MAT_MM = (746.125, 1098.55)
 ENVELOPE_MM = (184, 133)
 #ENVELOPE_MM = (165, 108)
 
 # https://www.nerdwallet.com/ca/p/article/credit-cards/credit-card-size
-CREDIT_CARD_W_CM = 8.56
-CREDIT_CARD_H_CM = 5.398
+CREDIT_CARD_W_MM = 85.6
+CREDIT_CARD_H_MM = 53.98
 
-STANDARD_TOLERANCE_CM = 0.33
-STANDARD_TOLERANCE_SHIRT_CM = 3
+STANDARD_TOLERANCE_MM = 3.3
+STANDARD_TOLERANCE_SHIRT_MM = 30
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TEST_IMAGES_ROOT = REPO_ROOT / "test-images"
 SAVE_DEBUG_IMAGES_ENV = "OBJECT_MEASURER_SAVE_DEBUG_IMAGES"
@@ -98,37 +99,35 @@ def print_debug_on_failure(label: str, get_debug):
 
 
 @pytest.mark.parametrize(
-    "slug, scale, image_path, reference_size_mm, tol_cm",
+    "slug, scale, image_path, reference_size_mm, tol_mm",
     [
-        # Works in Production
-        ("ucard-one", 1, fixture_path("ucard-one", "ucard-one.jpg"), LETTER_MM, STANDARD_TOLERANCE_CM),
-        ("iswic-folded", 1, fixture_path("iswic-folded", "img_6a1db6e03ad2a7.16505140.jpg"), PORTRAIT_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_CM),
-        ("iswic-folded2", 1, fixture_path("iswic-folded2", "img_6a1db77d7f1973.02751931.jpg"), PORTRAIT_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_CM),
+        ("ucard-one", 1, fixture_path("ucard-one", "ucard-one.jpg"), LETTER_MM, STANDARD_TOLERANCE_MM),
+        ("iswic-folded", 1, fixture_path("iswic-folded", "img_6a1db6e03ad2a7.16505140.jpg"), PORTRAIT_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_MM),
+        ("iswic-folded2", 1, fixture_path("iswic-folded2", "img_6a1db77d7f1973.02751931.jpg"), PORTRAIT_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_MM),
 
-        # Fails in production
-        ("goldy-lightblue", 1, fixture_path("goldy-lightblue", "img_6a1db5fd6d4312.38941970.jpg"), PORTRAIT_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_CM),
-        # ("nike-envelope", 1, fixture_path("nike-envelope", "img_6a7b6ba3eb1276.03284004.jpg"), ENVELOPE_MM, STANDARD_TOLERANCE_SHIRT_CM),
+        ("goldy-lightblue", 1, fixture_path("goldy-lightblue", "img_6a1db5fd6d4312.38941970.jpg"), PORTRAIT_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_MM),
+        # ("nike-envelope", 1, fixture_path("nike-envelope", "img_6a7b6ba3eb1276.03284004.jpg"), ENVELOPE_MM, STANDARD_TOLERANCE_SHIRT_MM),
 
-        ("mock-box-white-blue-one", 1, fixture_path("mock-box-white-blue-one", "IMG_0315.jpeg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
-        ("mock-box-white-blue-one-off-axis", 1, fixture_path("mock-box-white-blue-goldy-one-off-axis", "img_6a84aaa9bd5684.29594166.jpg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
-        ("mock-box-white-blue-goldy-one", 1, fixture_path("mock-box-white-blue-goldy-one", "IMG_0317.jpeg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
-        ("mock-box-white-blue-goldy-two", 1, fixture_path("mock-box-white-blue-goldy-two", "img_6a84a94c724176.66225541.jpg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
-        ("mock-box-white-blue-goldy-three", 1, fixture_path("mock-box-white-blue-goldy-three", "img_6a84a977ae3347.44496591.jpg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
-        ("mock-box-white-blue-goldy-four", 1, fixture_path("mock-box-white-blue-goldy-four", "img_6a84a8e7b20297.13560456.jpg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_CM),
+        ("mock-box-white-blue-one", 1, fixture_path("mock-box-white-blue-one", "IMG_0315.jpeg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_MM),
+        ("mock-box-white-blue-one-off-axis", 1, fixture_path("mock-box-white-blue-goldy-one-off-axis", "img_6a84aaa9bd5684.29594166.jpg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_MM),
+        ("mock-box-white-blue-goldy-one", 1, fixture_path("mock-box-white-blue-goldy-one", "IMG_0317.jpeg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_MM),
+        ("mock-box-white-blue-goldy-two", 1, fixture_path("mock-box-white-blue-goldy-two", "img_6a84a94c724176.66225541.jpg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_MM),
+        ("mock-box-white-blue-goldy-three", 1, fixture_path("mock-box-white-blue-goldy-three", "img_6a84a977ae3347.44496591.jpg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_MM),
+        ("mock-box-white-blue-goldy-four", 1, fixture_path("mock-box-white-blue-goldy-four", "img_6a84a8e7b20297.13560456.jpg"), MOCK_BOX_MM, STANDARD_TOLERANCE_SHIRT_MM),
 
         # Broader source-photo smoke coverage
-        ("one", 1, fixture_path("one", "one.jpg"), A4_MM, STANDARD_TOLERANCE_CM),
-        ("ucard-two", 1, fixture_path("ucard-two", "ucard-two.jpg"), LETTER_MM, STANDARD_TOLERANCE_CM),
-        ("ucard-one-off-axis", 1, fixture_path("ucard-one-off-axis", "ucard-one-off-axis.jpg"), LETTER_MM, STANDARD_TOLERANCE_CM),
-        ("ucard-two-off-axis", 1, fixture_path("ucard-two-off-axis", "ucard-two-off-axis.jpg"), LETTER_MM, STANDARD_TOLERANCE_CM),
-        ("nike-letter-one", 1, fixture_path("nike-letter-one", "img_6a7c9d736092f6.97385818.jpg"), LETTER_MM, STANDARD_TOLERANCE_CM),
-        ("nike-letter-one-off-axis", 1, fixture_path("nike-letter-one-off-axis", "img_6a838cf9edde22.59423143.jpg"), LETTER_MM, STANDARD_TOLERANCE_CM),
-        ("iswic", 1, fixture_path("iswic", "iswic.jpg"), LIGHTBOX_MAT_MM, STANDARD_TOLERANCE_SHIRT_CM),
-        ("goldy", 1, fixture_path("goldy", "goldy.jpg"), ODDBALL_BLACK_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_CM),
-        ("cherokee", 1, fixture_path("cherokee", "cherokee.jpg"), ODDBALL_BLACK_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_CM),
+        ("one", 1, fixture_path("one", "one.jpg"), A4_MM, STANDARD_TOLERANCE_MM),
+        ("ucard-two", 1, fixture_path("ucard-two", "ucard-two.jpg"), LETTER_MM, STANDARD_TOLERANCE_MM),
+        ("ucard-one-off-axis", 1, fixture_path("ucard-one-off-axis", "ucard-one-off-axis.jpg"), LETTER_MM, STANDARD_TOLERANCE_MM),
+        ("ucard-two-off-axis", 1, fixture_path("ucard-two-off-axis", "ucard-two-off-axis.jpg"), LETTER_MM, STANDARD_TOLERANCE_MM),
+        ("nike-letter-one", 1, fixture_path("nike-letter-one", "img_6a7c9d736092f6.97385818.jpg"), LETTER_MM, STANDARD_TOLERANCE_MM),
+        ("nike-letter-one-off-axis", 1, fixture_path("nike-letter-one-off-axis", "img_6a838cf9edde22.59423143.jpg"), LETTER_MM, STANDARD_TOLERANCE_MM),
+        ("iswic", 1, fixture_path("iswic", "iswic.jpg"), LIGHTBOX_MAT_MM, STANDARD_TOLERANCE_SHIRT_MM),
+        ("goldy", 1, fixture_path("goldy", "goldy.jpg"), ODDBALL_BLACK_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_MM),
+        ("cherokee", 1, fixture_path("cherokee", "cherokee.jpg"), ODDBALL_BLACK_POSTER_BOARD_MM, STANDARD_TOLERANCE_SHIRT_MM),
     ],
 )
-def test_images_processes(slug, scale, image_path, reference_size_mm, tol_cm, tmp_path):
+def test_images_processes(slug, scale, image_path, reference_size_mm, tol_mm, tmp_path):
     img = cv2.imread(str(image_path))
     assert img is not None, f"Could not load image at path: {image_path}"
 
@@ -178,31 +177,32 @@ def test_mock_box_white_blue_one_detects_large_central_shirt_contour(tmp_path):
         assert 0.35 <= center_x <= 0.65
         assert 0.35 <= center_y <= 0.65
         assert bbox_area_fraction >= 0.75
-        assert dominant_measurement.width_cm == pytest.approx(70.4, abs=STANDARD_TOLERANCE_SHIRT_CM)
-        assert dominant_measurement.height_cm == pytest.approx(64.5, abs=STANDARD_TOLERANCE_SHIRT_CM)
+        assert dominant_measurement.width_mm == pytest.approx(70.4, abs=STANDARD_TOLERANCE_SHIRT_MM)
+        assert dominant_measurement.height_mm == pytest.approx(64.5, abs=STANDARD_TOLERANCE_SHIRT_MM)
 
 
 @pytest.mark.parametrize(
-    "slug, scale, image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm",
+    "slug, scale, image_path, reference_size_mm, expected_count, expected_w_mm, expected_h_mm, tol_mm",
     [
-        ("one", 1, fixture_path("one", "one.jpg"), A4_MM, 2, 9.15, 5.0, STANDARD_TOLERANCE_CM),
-        ("ucard-one", 1, fixture_path("ucard-one", "ucard-one.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("ucard-one", 2, fixture_path("ucard-one", "ucard-one.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("ucard-two", 1, fixture_path("ucard-two", "ucard-two.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("ucard-one-off-axis", 1, fixture_path("ucard-one-off-axis", "ucard-one-off-axis.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("ucard-two-off-axis", 1, fixture_path("ucard-two-off-axis", "ucard-two-off-axis.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        # ("nike-envelope", 1, fixture_path("nike-envelope", "img_6a7b6ba3eb1276.03284004.jpg"), ENVELOPE_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("nike-letter-one", 1, fixture_path("nike-letter-one", "img_6a7c9d736092f6.97385818.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM,STANDARD_TOLERANCE_CM),
-        ("nike-letter-two", 1, fixture_path("nike-letter-two", "img_6a7b67eeb4dcd8.69842033.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM,STANDARD_TOLERANCE_CM),
-        ("nike-letter-one-off-axis", 1, fixture_path("nike-letter-one-off-axis", "img_6a838cf9edde22.59423143.jpg"), LETTER_MM, 1, CREDIT_CARD_W_CM, CREDIT_CARD_H_CM, STANDARD_TOLERANCE_CM),
-        ("iswic", 1, fixture_path("iswic", "iswic.jpg"), LIGHTBOX_MAT_MM, 1, 70.485, 69.5325, STANDARD_TOLERANCE_SHIRT_CM),
-        ("goldy", 1, fixture_path("goldy", "goldy.jpg"), ODDBALL_BLACK_POSTER_BOARD_MM, 1, 45.72, 40.5, STANDARD_TOLERANCE_SHIRT_CM),
-        ("cherokee", 1, fixture_path("cherokee", "cherokee.jpg"), ODDBALL_BLACK_POSTER_BOARD_MM, 1, 40.9575, 51.435, STANDARD_TOLERANCE_SHIRT_CM),
+        ("one", 1, fixture_path("one", "one.jpg"), A4_MM, 2, 91.5, 50, STANDARD_TOLERANCE_MM),
+        ("ucard-one", 1, fixture_path("ucard-one", "ucard-one.jpg"), LETTER_MM, 1, CREDIT_CARD_W_MM, CREDIT_CARD_H_MM, STANDARD_TOLERANCE_MM),
+        ("ucard-one", 2, fixture_path("ucard-one", "ucard-one.jpg"), LETTER_MM, 1, CREDIT_CARD_W_MM, CREDIT_CARD_H_MM, STANDARD_TOLERANCE_MM),
+        ("ucard-two", 1, fixture_path("ucard-two", "ucard-two.jpg"), LETTER_MM, 1, CREDIT_CARD_W_MM, CREDIT_CARD_H_MM, STANDARD_TOLERANCE_MM),
+        ("ucard-one-off-axis", 1, fixture_path("ucard-one-off-axis", "ucard-one-off-axis.jpg"), LETTER_MM, 1, CREDIT_CARD_W_MM, CREDIT_CARD_H_MM, STANDARD_TOLERANCE_MM),
+        ("ucard-two-off-axis", 1, fixture_path("ucard-two-off-axis", "ucard-two-off-axis.jpg"), LETTER_MM, 1, CREDIT_CARD_W_MM, CREDIT_CARD_H_MM, STANDARD_TOLERANCE_MM),
+        # ("nike-envelope", 1, fixture_path("nike-envelope", "img_6a7b6ba3eb1276.03284004.jpg"), ENVELOPE_MM, 1, CREDIT_CARD_W_mm, CREDIT_CARD_H_mm, STANDARD_TOLERANCE_MM),
+        ("nike-letter-one", 1, fixture_path("nike-letter-one", "img_6a7c9d736092f6.97385818.jpg"), LETTER_MM, 1, CREDIT_CARD_W_MM, CREDIT_CARD_H_MM, STANDARD_TOLERANCE_MM),
+        ("nike-letter-two", 1, fixture_path("nike-letter-two", "img_6a7b67eeb4dcd8.69842033.jpg"), LETTER_MM, 1, CREDIT_CARD_W_MM, CREDIT_CARD_H_MM, STANDARD_TOLERANCE_MM),
+        ("nike-letter-one-off-axis", 1, fixture_path("nike-letter-one-off-axis", "img_6a838cf9edde22.59423143.jpg"), LETTER_MM, 1, CREDIT_CARD_W_MM, CREDIT_CARD_H_MM, STANDARD_TOLERANCE_MM),
+        ("iswic", 1, fixture_path("iswic", "iswic.jpg"), LIGHTBOX_MAT_MM, 1, 704.85, 695.325, STANDARD_TOLERANCE_SHIRT_MM),
+        ("goldy", 1, fixture_path("goldy", "goldy.jpg"), ODDBALL_BLACK_POSTER_BOARD_MM, 1, 457.2, 405, STANDARD_TOLERANCE_SHIRT_MM),
+        ("cherokee", 1, fixture_path("cherokee", "cherokee.jpg"), ODDBALL_BLACK_POSTER_BOARD_MM, 1, 409.575, 514.35, STANDARD_TOLERANCE_SHIRT_MM),
 
-        ("iswic", 2, fixture_path("iswic", "iswic.jpg"), LIGHTBOX_MAT_MM, 1, 70.485, 69.5325, STANDARD_TOLERANCE_SHIRT_CM),
+        ("iswic", 1, fixture_path("iswic", "iswic.jpg"), LIGHTBOX_MAT_MM, 1, 704.85, 695.325, STANDARD_TOLERANCE_SHIRT_MM),
+        ("iswic-30x30-canvas", 1, fixture_path("iswic-30x30-canvas", "iswic-30x30-canvas.jpg"), SQ_CANVAS_MM, 1, 704.85, 695.325, STANDARD_TOLERANCE_SHIRT_MM),
     ],
 )
-def test_1jpg_two_objects_about_9x5(slug, scale, image_path, reference_size_mm, expected_count, expected_w_cm, expected_h_cm, tol_cm, tmp_path):
+def test_object_measure(slug, scale, image_path, reference_size_mm, expected_count, expected_w_mm, expected_h_mm, tol_mm, tmp_path):
     img = cv2.imread(str(image_path))
     assert img is not None, f"Could not load image at path: {image_path}"
 
@@ -217,10 +217,10 @@ def test_1jpg_two_objects_about_9x5(slug, scale, image_path, reference_size_mm, 
 
     with print_debug_on_failure(slug, lambda: debug):
         print(f"Expected {expected_count} contours, got {len(measurements)}: ")
-        print(f"{[(m.width_cm, m.height_cm) for m in measurements]}")
+        print(f"{[(m.width_mm, m.height_mm) for m in measurements]}")
 
-        width_cm, height_cm = measurements[0].width_cm, measurements[0].height_cm
-        print(f"Width: {width_cm}, Height: {height_cm}")
+        width_mm, height_mm = measurements[0].width_mm, measurements[0].height_mm
+        print(f"Width: {width_mm}, Height: {height_mm}")
 
         # assert len(measurements) == expected_count
 
@@ -229,16 +229,16 @@ def test_1jpg_two_objects_about_9x5(slug, scale, image_path, reference_size_mm, 
         # Order-independent: every measurement should be ~9x5 (allow swapped orientation too).
         for m in measurements:
             ok_normal = (
-                m.width_cm == pytest.approx(expected_w_cm, abs=tol_cm)
-                and m.height_cm == pytest.approx(expected_h_cm, abs=tol_cm)
+                m.width_mm == pytest.approx(expected_w_mm, abs=tol_mm)
+                and m.height_mm == pytest.approx(expected_h_mm, abs=tol_mm)
             )
             ok_swapped = (
-                m.width_cm == pytest.approx(expected_h_cm, abs=tol_cm)
-                and m.height_cm == pytest.approx(expected_w_cm, abs=tol_cm)
+                m.width_mm == pytest.approx(expected_h_mm, abs=tol_mm)
+                and m.height_mm == pytest.approx(expected_w_mm, abs=tol_mm)
             )
             assert ok_normal or ok_swapped, (
-                f"Unexpected measurement (w,h)=({m.width_cm},{m.height_cm}); "
-                f"expected about ({expected_w_cm},{expected_h_cm}) +/- {tol_cm} cm"
+                f"Unexpected measurement (w,h)=({m.width_mm},{m.height_mm}); "
+                f"expected about ({expected_w_mm},{expected_h_mm}) +/- {tol_mm} cm"
             )
             break
 

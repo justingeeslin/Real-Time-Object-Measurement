@@ -18,8 +18,8 @@ class ContourMeasurement:
 
     contour: np.ndarray  # polygon points (approx) for the object
     bbox: Tuple[int, int, int, int]  # (x, y, w, h) in pixels of the warped image
-    width_cm: float
-    height_cm: float
+    width_mm: float
+    height_mm: float
 
 
 @dataclass(frozen=True)
@@ -59,8 +59,8 @@ class ObjectMeasurer:
         page_filter_corners: int = 4,
         object_filter_corners: int = 4,
         object_canny_thresholds: Tuple[int, int] = (50, 50),
-        object_min_dimension_cm: float = 1.0,
-        pixels_to_mm_divisor: float = 10.0,
+        object_min_dimension_mm: float = 1.0,
+        pixels_to_mm_divisor: float = 1.0,
         warp_pad: int = 20,
         page_kernel_size: int = 5,
         debug_path: Optional[Union[str, Path]] = None,
@@ -77,7 +77,7 @@ class ObjectMeasurer:
         self.object_filter_corners = int(object_filter_corners)
 
         self.object_canny_thresholds = (int(object_canny_thresholds[0]), int(object_canny_thresholds[1]))
-        self.object_min_dimension_cm = float(object_min_dimension_cm)
+        self.object_min_dimension_mm = float(object_min_dimension_mm)
         self.pixels_to_mm_divisor = float(pixels_to_mm_divisor)
         self.page_kernel_size = self._odd_kernel_size(page_kernel_size)
 
@@ -631,14 +631,14 @@ class ObjectMeasurer:
                 )
                 continue
 
-            # Print the axis-aligned bbox dimensions (blue rectangle) in cm
-            bbox_w_cm = float(bw) / self.pixels_to_mm_divisor
-            bbox_h_cm = float(bh) / self.pixels_to_mm_divisor
+            # Print the axis-aligned bbox dimensions (blue rectangle) in mm
+            bbox_w_mm = float(bw) / self.pixels_to_mm_divisor
+            bbox_h_mm = float(bh) / self.pixels_to_mm_divisor
             self._trace(
                 "object_bbox",
                 index=idx,
-                width_cm=bbox_w_cm,
-                height_cm=bbox_h_cm,
+                width_mm=bbox_w_mm,
+                height_mm=bbox_h_mm,
                 bbox=(int(x), int(y), int(bw), int(bh)),
             )
         self.debug["img_object_contours_drawn"] = img_with_object_contours
@@ -697,15 +697,15 @@ class ObjectMeasurer:
             (_, _), (w_box, h_box), _ = rect
             width_px = max(float(w_box), float(h_box))
             height_px = min(float(w_box), float(h_box))
-            width_cm = width_px / self.pixels_to_mm_divisor
-            height_cm = height_px / self.pixels_to_mm_divisor
-            self._trace("object_min_area_rect", index=idx, width_cm=width_cm, height_cm=height_cm)
+            width_mm = width_px / self.pixels_to_mm_divisor
+            height_mm = height_px / self.pixels_to_mm_divisor
+            self._trace("object_min_area_rect", index=idx, width_mm=width_mm, height_mm=height_mm)
         self.debug["img_object_minAreaRect"] = img_with_object_boxes
         self._saveDebugImage(img_with_object_boxes, "object_minAreaRect")
 
         measurements = self._measure_objects(conts2)
         self.debug["measurements"] = [
-            {"width_cm": m.width_cm, "height_cm": m.height_cm, "bbox": m.bbox} for m in measurements
+            {"width_mm": m.width_mm, "height_mm": m.height_mm, "bbox": m.bbox} for m in measurements
         ]
         if measurements:
             self.debug["status"] = "ok"
@@ -758,7 +758,7 @@ class ObjectMeasurer:
                 try:
                     nPoints = ObjectMeasurer.reorder(pts)
 
-                    # Legacy behavior: divide points by scale before findDis, then divide by 10 and label as cm.
+                    # Legacy behavior: divide points by scale before findDis
                     w_px = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[1][0] // self.scale)
                     h_px = ObjectMeasurer.findDis(nPoints[0][0] // self.scale, nPoints[2][0] // self.scale)
                 except Exception as exc:
@@ -799,30 +799,30 @@ class ObjectMeasurer:
             width_px = max(w_px, h_px)
             height_px = min(w_px, h_px)
 
-            width_cm = width_px / self.pixels_to_mm_divisor
-            height_cm = height_px / self.pixels_to_mm_divisor
+            width_mm = width_px / self.pixels_to_mm_divisor
+            height_mm = height_px / self.pixels_to_mm_divisor
 
-            if min(width_cm, height_cm) < self.object_min_dimension_cm:
+            if min(width_mm, height_mm) < self.object_min_dimension_mm:
                 self._trace(
                     "object_measurement_skipped",
                     index=idx,
                     reason="below_min_dimension",
                     method=method,
-                    width_cm=width_cm,
-                    height_cm=height_cm,
-                    min_dimension_cm=self.object_min_dimension_cm,
+                    width_mm=width_mm,
+                    height_mm=height_mm,
+                    min_dimension_mm=self.object_min_dimension_mm,
                 )
                 continue
 
-            self._trace("object_measured", index=idx, method=method, width_cm=width_cm, height_cm=height_cm)
+            self._trace("object_measured", index=idx, method=method, width_mm=width_mm, height_mm=height_mm)
 
             x, y, bw, bh = obj[3]
             out.append(
                 ContourMeasurement(
                     contour=pts,
                     bbox=(int(x), int(y), int(bw), int(bh)),
-                    width_cm=float(width_cm),
-                    height_cm=float(height_cm),
+                    width_mm=float(width_mm),
+                    height_mm=float(height_mm),
                 )
             )
 
@@ -1436,7 +1436,7 @@ def _draw_measurements(imgWarp: np.ndarray, measurements: Sequence[ContourMeasur
         x, y, w, h = m.bbox
         cv2.putText(
             imgOut,
-            f"{m.width_cm}cm",
+            f"{m.width_mm}mm",
             (x + 30, y - 10),
             cv2.FONT_HERSHEY_COMPLEX_SMALL,
             1.5,
@@ -1445,7 +1445,7 @@ def _draw_measurements(imgWarp: np.ndarray, measurements: Sequence[ContourMeasur
         )
         cv2.putText(
             imgOut,
-            f"{m.height_cm}cm",
+            f"{m.height_mm}mm",
             (x - 70, y + h // 2),
             cv2.FONT_HERSHEY_COMPLEX_SMALL,
             1.5,
